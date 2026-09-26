@@ -11,21 +11,28 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/kyledickey/sptui/internal/art"
 	"github.com/kyledickey/sptui/internal/lyrics"
 	"github.com/kyledickey/sptui/internal/spotify"
 )
 
 // The now-playing view has three panels, numbered like btop's: 1 the
 // track (cover, info, controls), 2 lyrics, 3 up next. Pressing a number
-// hides or shows its panel and the rest reflow:
+// hides or shows its panel and the rest reflow. The track panel has no box
+// of its own:
 //
-//	╭─1 track──────╮╭─2 lyrics───────────────╮
-//	│   ████████   ││   a line just sung     │
-//	│   ████████   ││   THE LINE BEING SUNG  │
-//	│    Title     │╰────────────────────────╯
-//	│    Artist    │╭─3 up next──────────────╮
-//	│  ━━━━──────  ││ …                      │
-//	╰──────────────╯╰────────────────────────╯
+//	                 ╭─2 lyrics───────────────╮
+//	   ████████      │   a line just sung     │
+//	   ████████      │   THE LINE BEING SUNG  │
+//	    Title        ╰────────────────────────╯
+//	    Artist       ╭─3 up next──────────────╮
+//	  ━━━●──────     │ …                      │
+//	╭───╮╭───╮╭───╮  │                        │
+//	│ ⇄ ││ ▶ ││ ↻ │  │                        │
+//	╰ s ╯╰spc╯╰ r ╯  │                        │
+//	♥ liked vol ▮▮▮  ╰────────────────────────╯
+//
+// Alone, the track panel puts the cover and the info side by side.
 //
 // With the track panel hidden, a slim strip at the bottom keeps the song
 // and progress in view.
@@ -37,9 +44,22 @@ const (
 	panelQueue  = '3'
 )
 
-// npInfoLines is the text under the cover: spacer, title, artist, album,
-// spacer, progress, spacer, controls.
-const npInfoLines = 8
+// Room for the track info. Stacked under the cover: spacer, title,
+// artist, album, spacer, progress, spacer, buttons, spacer, like and
+// volume. Solo (beside the cover) adds a heading and what's up next.
+const (
+	soloInfoW = 54 // the info column beside the cover
+	soloGap   = 6  // between cover and info
+	bigRows   = 3  // height of the keycap buttons
+	bigNeeds  = 16 // view height from which the buttons are big
+)
+
+func stackInfoLines(big bool) int {
+	if big {
+		return 10 + bigRows - 1
+	}
+	return 10
+}
 
 // stripHeight is the bottom strip shown when the track panel is hidden.
 const stripHeight = 4
@@ -52,6 +72,8 @@ type npLayout struct {
 	lyricsH, queueH      int
 	stripH               int // bottom strip when the track panel is hidden
 	coverRows, coverCols int
+	solo                 bool // the track panel alone: cover and info side by side
+	big                  bool // room for the big transport buttons
 }
 
 // shown reports whether a now-playing panel is visible.
@@ -71,7 +93,8 @@ func (m *Model) nowPlayingLayout() npLayout {
 		l.trackW = max(30, min(want, m.width*45/100))
 		l.sideW = m.width - l.trackW
 	case track:
-		l.trackW = m.width // alone: as big as fits
+		l.trackW = m.width
+		l.solo = true
 	default:
 		l.sideW = m.width
 		l.stripH = stripHeight
@@ -87,13 +110,20 @@ func (m *Model) nowPlayingLayout() npLayout {
 		l.queueH = side
 	}
 	if track {
-		// The biggest square cover that fits above the track info.
-		inner := l.trackW - 6
-		l.coverRows = min(h-2-npInfoLines, inner)
-		for l.coverRows > 0 && m.coverCols(l.coverRows) > inner {
+		l.big = h-2 >= bigNeeds
+		// Stacked: the biggest square cover that fits above the info.
+		// Solo: beside the info, and no taller than 3/5 of the view so
+		// it doesn't swallow the screen.
+		maxCols, minRows := l.trackW-6, 4
+		l.coverRows = min(h-3-stackInfoLines(l.big), maxCols)
+		if l.solo {
+			maxCols, minRows = m.width-4-soloInfoW-soloGap, 8
+			l.coverRows = min(h-2, h*3/5)
+		}
+		for l.coverRows > 0 && m.coverCols(l.coverRows) > maxCols {
 			l.coverRows--
 		}
-		if l.coverRows < 4 {
+		if l.coverRows < minRows || m.covers.mode == art.Off {
 			l.coverRows = 0
 		}
 		l.coverCols = m.coverCols(l.coverRows)
@@ -230,7 +260,9 @@ func (m *Model) viewNowPlaying() string {
 	if l.trackW == 0 {
 		return right
 	}
-	left := m.panel(panelTrack, "track", "", l.trackW, l.height, false, m.viewTrackCard(l))
+	// The track panel is the view's centrepiece, so it goes without a box.
+	left := lipgloss.NewStyle().Padding(1, 2).Width(l.trackW).Height(l.height).
+		Render(crop(m.viewTrackCard(l), l.trackW-4, l.height-2))
 	if l.sideW == 0 {
 		return left
 	}
@@ -268,36 +300,194 @@ func crop(s string, w, h int) string {
 }
 
 // viewTrackCard is the cover, track info, progress and controls, centred
-// as one block.
+// as one block: stacked beside the other panels, side by side when alone.
 func (m *Model) viewTrackCard(l npLayout) string {
 	w, h := l.trackW-4, l.height-2
-	center := func(s string) string { return lipgloss.PlaceHorizontal(w, lipgloss.Center, clampWidth(s, w)) }
 	t := m.player.track()
 	if t == nil {
 		return m.notice(w, h, "♪", "Nothing playing", "Pick a song and press enter.", m.st.subtitle)
 	}
-
-	var lines []string
+	var cover string
 	if l.coverRows > 0 {
-		for _, row := range strings.Split(m.coverView(m.thumbURL(), l.coverCols, l.coverRows), "\n") {
+		cover = m.coverView(m.thumbURL(), l.coverCols, l.coverRows)
+	}
+	if l.solo {
+		info := m.soloInfo(t, min(soloInfoW, w), l.big)
+		block := info
+		if cover != "" {
+			block = lipgloss.JoinHorizontal(lipgloss.Center, cover, strings.Repeat(" ", soloGap), info)
+		}
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, block)
+	}
+
+	center := func(s string) string { return lipgloss.PlaceHorizontal(w, lipgloss.Center, clampWidth(s, w)) }
+	var lines []string
+	if cover != "" {
+		for _, row := range strings.Split(cover, "\n") {
 			lines = append(lines, center(row))
 		}
 		lines = append(lines, "")
 	}
-	title := t.Name
-	if m.player.liked {
-		title += m.st.on.Render("  ♥")
-	}
+	barW := min(w, max(l.coverCols, 40))
 	lines = append(lines,
-		center(m.st.trackTitle.Render(title)),
+		center(m.st.trackTitle.Render(t.Name)),
 		center(m.st.trackArtist.Render(t.ArtistNames())),
-		center(m.st.subtitle.Render(joinNonEmpty(" · ", t.Album.Name, t.Album.Year()))),
+		center(m.st.subtitle.Render(trackMeta(t, m.player.progress(time.Now())))),
 		"",
-		center(m.progressLine(t, min(w, max(l.coverCols, 40)))),
+		center(m.progressLine(t, barW)),
 		"",
-		center(m.controlsLine(m.player.state, w)),
 	)
+	for _, row := range m.transport(m.player.state, l.big, w) {
+		lines = append(lines, center(row))
+	}
+	lines = append(lines, "", center(m.likeAndVolume(min(barW, capsW))))
 	return lipgloss.PlaceVertical(h, lipgloss.Center, strings.Join(lines, "\n"))
+}
+
+// soloInfo is the column beside the cover when the track panel is alone:
+// a heading, the track, progress, buttons, like and volume, and what's up
+// next, all left-aligned in w cells.
+func (m *Model) soloInfo(t *spotify.Track, w int, big bool) string {
+	st := m.player.state
+	heading := m.st.on.Render("●") + m.st.section.Render(" NOW PLAYING")
+	if !st.IsPlaying {
+		heading = m.st.off.Render("‖") + m.st.section.Render(" PAUSED")
+	}
+	if st.Device.Name != "" {
+		heading += m.st.off.Render(" on ") + m.st.subtitle.Render(st.Device.Name)
+	}
+	lines := []string{
+		heading,
+		"",
+		m.st.trackTitle.Render(t.Name),
+		m.st.trackArtist.Render(t.ArtistNames()),
+		m.st.subtitle.Render(trackMeta(t, m.player.progress(time.Now()))),
+		"",
+		m.progressLine(t, w),
+		"",
+	}
+	lines = append(lines, m.transport(st, big, w)...)
+	lines = append(lines, "", m.likeAndVolume(min(w, capsW)))
+	if next := m.upNext(); next != nil {
+		lines = append(lines, "", m.st.colHead.Render("UP NEXT  ")+
+			m.st.row.Render(next.Name)+m.st.subtitle.Render(" · "+next.ArtistNames()))
+	}
+	for i := range lines {
+		lines[i] = clampWidth(lines[i], w)
+	}
+	return lipgloss.NewStyle().Width(w).Render(strings.Join(lines, "\n"))
+}
+
+// upNext is the first track in the queue, if it's loaded.
+func (m *Model) upNext() *spotify.Track {
+	if p := m.current(); p != nil && p.nowPlaying {
+		for _, r := range p.rows {
+			if r.kind == kindTrack {
+				return &r.track
+			}
+		}
+	}
+	return nil
+}
+
+// trackMeta is the line under the artist: album and year for a song; for
+// an episode, that it's a podcast, when it came out and how much is left.
+func trackMeta(t *spotify.Track, pos time.Duration) string {
+	if t.IsEpisode() {
+		left := ""
+		if rest := t.Duration() - pos; rest > time.Minute {
+			left = fmt.Sprintf("%d min left", int(rest.Minutes()))
+		}
+		return joinNonEmpty(" · ", "Podcast", t.ReleaseDate, left)
+	}
+	return joinNonEmpty(" · ", t.Album.Name, t.Album.Year())
+}
+
+// capsW is the width of the row of keycap buttons: five caps of
+// capInner+2 cells with a space between.
+const (
+	capInner = 5
+	capsW    = 5*(capInner+2) + 4
+)
+
+// keycap draws a bigRows-tall button: glyph in the middle, the key that
+// presses it set into the bottom border. Lit caps glow in the accent.
+func (m *Model) keycap(glyph, key string, lit bool) [bigRows]string {
+	edge, face, label := m.st.off, m.st.trackTitle, m.st.subtitle
+	if lit {
+		edge, face, label = m.st.on, m.st.on, m.st.on.Bold(true)
+	}
+	pad := capInner - lipgloss.Width(glyph)
+	mid := strings.Repeat(" ", pad/2) + face.Render(glyph) + strings.Repeat(" ", pad-pad/2)
+	name := key
+	if len(name) < capInner {
+		name = " " + name + " "
+	}
+	dashes := max(capInner-len(name), 0)
+	bottom := edge.Render("╰"+strings.Repeat("─", dashes/2)) + label.Render(name) +
+		edge.Render(strings.Repeat("─", dashes-dashes/2)+"╯")
+	return [bigRows]string{
+		edge.Render("╭" + strings.Repeat("─", capInner) + "╮"),
+		edge.Render("│") + mid + edge.Render("│"),
+		bottom,
+	}
+}
+
+// transport draws shuffle, previous, play/pause, next and repeat as
+// keycaps when there's room (capsW wide, bigRows tall), or on one line.
+// Play/pause shows what's happening now.
+func (m *Model) transport(st *spotify.PlaybackState, big bool, w int) []string {
+	shuffle, repeat := st.ShuffleState, st.RepeatState != spotify.RepeatOff
+	repeatGlyph := "↻"
+	if st.RepeatState == spotify.RepeatTrack {
+		repeatGlyph = "↻¹"
+	}
+	state := "▶"
+	if !st.IsPlaying {
+		state = "‖"
+	}
+	if !big || w < capsW {
+		lit := func(on bool, glyph string) string {
+			if on {
+				return m.st.on.Render(glyph)
+			}
+			return m.st.off.Render(glyph)
+		}
+		return []string{strings.Join([]string{
+			lit(shuffle, "⇄"), m.st.subtitle.Render("◀◀"), lit(st.IsPlaying, state),
+			m.st.subtitle.Render("▶▶"), lit(repeat, repeatGlyph),
+		}, "    ")}
+	}
+	caps := [][bigRows]string{
+		m.keycap("⇄", "s", shuffle),
+		m.keycap("◀◀", "p", false),
+		m.keycap(state, "space", st.IsPlaying),
+		m.keycap(" ▶▶", "n", false), // mirrors ◀◀, which sits left of centre
+		m.keycap(repeatGlyph, "r", repeat),
+	}
+	rows := make([]string, bigRows)
+	for i := range rows {
+		parts := make([]string, len(caps))
+		for j, c := range caps {
+			parts[j] = c[i]
+		}
+		rows[i] = strings.Join(parts, " ")
+	}
+	return rows
+}
+
+// likeAndVolume is the line under the buttons: the heart at the left and
+// the volume bar at the right of w cells.
+func (m *Model) likeAndVolume(w int) string {
+	heart := m.st.off.Render("♡ like")
+	if m.player.liked {
+		heart = m.st.on.Render("♥ liked")
+	}
+	vol := m.volumeBar()
+	if lipgloss.Width(heart)+lipgloss.Width(vol)+2 > w {
+		return vol
+	}
+	return spread(heart, vol, w)
 }
 
 // viewStrip is the slim now-playing strip shown when the track panel is
@@ -317,7 +507,7 @@ func (m *Model) viewStrip(w int) string {
 	return clampWidth(song, w) + "\n" + spread(m.progressLine(t, w-lipgloss.Width(controls)-3), controls, w)
 }
 
-// progressLine is "1:23 ━━━━━───── 3:45" at width w.
+// progressLine is "1:23 ━━━━━●──── 3:45" at width w.
 func (m *Model) progressLine(t *spotify.Track, w int) string {
 	pos, dur := m.player.progress(time.Now()), t.Duration()
 	elapsed, total := clock(pos), clock(dur)
@@ -326,7 +516,9 @@ func (m *Model) progressLine(t *spotify.Track, w int) string {
 	if dur > 0 {
 		filled = min(max(int(float64(barW)*float64(pos)/float64(dur)), 0), barW)
 	}
-	bar := m.st.progress.Render(strings.Repeat("━", filled)) + m.st.progressBg.Render(strings.Repeat("─", barW-filled))
+	// A knob marks the playhead.
+	filled = min(filled, barW-1)
+	bar := m.st.progress.Render(strings.Repeat("━", filled)+"●") + m.st.progressBg.Render(strings.Repeat("─", barW-filled-1))
 	return m.st.subtitle.Render(elapsed) + "  " + bar + "  " + m.st.subtitle.Render(total)
 }
 

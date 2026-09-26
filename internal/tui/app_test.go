@@ -565,7 +565,7 @@ func TestNowPlayingView(t *testing.T) {
 	d.playSongWithLyrics()
 	view := ansi.Strip(d.m.View().Content)
 	tr := d.m.player.track()
-	for _, want := range []string{"1 track", "2 lyrics", "3 up next", tr.Name, "▀"} {
+	for _, want := range []string{"2 lyrics", "3 up next", tr.Name, "▀", "▮"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view lacks %q", want)
 		}
@@ -593,24 +593,33 @@ func TestNowPlayingView(t *testing.T) {
 func TestNowPlayingLayoutFits(t *testing.T) {
 	for _, mode := range []art.Mode{art.Off, art.Blocks, art.Kitty} {
 		for _, sz := range [][2]int{{60, 16}, {80, 24}, {120, 35}, {220, 60}} {
-			d := newDriverWith(t, sz[0], sz[1], demo.New(), Options{Config: withArt(mode)})
-			d.press("o") // nothing playing yet
-			check := func(state string) {
-				t.Helper()
-				lines := strings.Split(d.m.View().Content, "\n")
-				if len(lines) != sz[1] {
-					t.Errorf("%v %dx%d %s: %d lines", mode, sz[0], sz[1], state, len(lines))
-				}
-				for i, l := range lines {
-					if w := lipgloss.Width(l); w > sz[0] {
-						t.Errorf("%v %dx%d %s: line %d is %d wide", mode, sz[0], sz[1], state, i, w)
+			for _, panels := range []string{"123", "1"} {
+				cfg := withArt(mode)
+				cfg.Theme.NowPlayingPanels = panels
+				d := newDriverWith(t, sz[0], sz[1], demo.New(), Options{Config: cfg})
+				d.press("o") // nothing playing yet
+				check := func(state string) {
+					t.Helper()
+					lines := strings.Split(d.m.View().Content, "\n")
+					if len(lines) != sz[1] {
+						t.Errorf("%v %s %dx%d %s: %d lines", mode, panels, sz[0], sz[1], state, len(lines))
+					}
+					for i, l := range lines {
+						if w := lipgloss.Width(l); w > sz[0] {
+							t.Errorf("%v %s %dx%d %s: line %d is %d wide", mode, panels, sz[0], sz[1], state, i, w)
+						}
 					}
 				}
+				check("idle")
+				d.press("esc", "enter", "o")
+				if panels == "1" {
+					d.press("n")
+					d.run(func() tea.Msg { return refreshMsg{} })
+				} else {
+					d.playSongWithLyrics()
+				}
+				check("playing")
 			}
-			check("idle")
-			d.press("esc", "enter", "o")
-			d.playSongWithLyrics()
-			check("playing")
 		}
 	}
 }
