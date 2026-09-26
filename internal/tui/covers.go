@@ -138,7 +138,7 @@ func (m *Model) thumbURL() string {
 	if t == nil || m.width < minWidth {
 		return ""
 	}
-	return spotify.CoverURL(t.Album.Images, coverSource)
+	return spotify.CoverURL(t.Cover(), coverSource)
 }
 
 // pageCoverRows is how tall a page's cover is, or 0 if there's no room.

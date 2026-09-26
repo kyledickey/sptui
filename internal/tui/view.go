@@ -313,7 +313,11 @@ func (m *Model) pageHeader(p *page, cw int) []string {
 	case p.filter != "":
 		right = m.st.subtitle.Render(fmt.Sprintf("%d of %d", m.countVisible(p), len(p.rows)))
 	case p.total > 0 && !p.isSearch:
-		right = m.st.subtitle.Render(plural(p.total, kindNoun[p.kind]))
+		noun := kindNoun[p.kind]
+		if p.episodes {
+			noun = "episode"
+		}
+		right = m.st.subtitle.Render(plural(p.total, noun))
 	}
 	if mark := m.cacheMarker(p.origin); mark != "" && !p.loading {
 		right = joinNonEmpty("  ", mark, right)
@@ -387,7 +391,7 @@ func (m *Model) pageError(p *page, cw int) []string {
 	}
 }
 
-var kindNoun = map[rowKind]string{kindTrack: "song", kindAlbum: "release", kindArtist: "artist", kindPlaylist: "playlist"}
+var kindNoun = map[rowKind]string{kindTrack: "song", kindAlbum: "release", kindArtist: "artist", kindPlaylist: "playlist", kindShow: "podcast"}
 
 // columns returns the widths of the flexible columns for a row kind.
 // Every row is: bar(2) lead(4) [flex columns separated by gaps] tail.
@@ -395,7 +399,7 @@ func columns(kind rowKind, w int, withAlbum bool) (flex []int, tail int) {
 	const gap = 2
 	switch kind {
 	case kindTrack:
-		tail = 6
+		tail = 7 // fits an hour-long episode, "1:24:00"
 		avail := w - 2 - 4 - tail
 		if avail >= 70 && withAlbum {
 			avail -= 3 * gap
@@ -403,7 +407,7 @@ func columns(kind rowKind, w int, withAlbum bool) (flex []int, tail int) {
 		}
 		avail -= 2 * gap
 		return []int{avail * 6 / 10, avail - avail*6/10}, tail
-	case kindAlbum, kindPlaylist:
+	case kindAlbum, kindPlaylist, kindShow:
 		tail = 10
 		avail := w - 2 - 4 - tail - 2*gap
 		return []int{avail * 6 / 10, avail - avail*6/10}, tail
@@ -423,10 +427,18 @@ func (m *Model) columnHeader(p *page, w int) string {
 	switch p.kind {
 	case kindTrack:
 		names, tailName = []string{"TITLE", "ARTIST", "ALBUM"}, "TIME"
+		switch {
+		case p.episodes && p.noAlbum:
+			names = []string{"TITLE", "RELEASED"}
+		case p.episodes:
+			names = []string{"TITLE", "PODCAST", "RELEASED"}
+		}
 	case kindAlbum:
 		names, tailName = []string{"ALBUM", "ARTIST"}, "YEAR"
 	case kindPlaylist:
 		names, tailName = []string{"PLAYLIST", "OWNER"}, "SONGS"
+	case kindShow:
+		names, tailName = []string{"PODCAST", "PUBLISHER"}, "EPISODES"
 	case kindArtist:
 		names = []string{"ARTIST", "GENRES"}
 	}
@@ -485,6 +497,12 @@ func (m *Model) renderRow(p *page, i, w int, focused bool) string {
 			}
 		}
 		cells = []string{t.Name, t.ArtistNames(), t.Album.Name}
+		switch {
+		case t.IsEpisode() && p.noAlbum: // a podcast's own page
+			cells = []string{t.Name, t.ReleaseDate}
+		case t.IsEpisode():
+			cells[2] = t.ReleaseDate
+		}
 		tailText = clock(t.Duration())
 	case kindAlbum:
 		a := r.album
@@ -499,6 +517,13 @@ func (m *Model) renderRow(p *page, i, w int, focused bool) string {
 		lead = "  ≡ "
 		cells = []string{pl.Name, pl.Owner.Name()}
 		tailText = fmt.Sprint(pl.TrackCount())
+	case kindShow:
+		sh := r.show
+		lead = "  ◉ "
+		cells = []string{sh.Name, sh.Publisher}
+		if sh.TotalEpisodes > 0 {
+			tailText = fmt.Sprint(sh.TotalEpisodes)
+		}
 	}
 
 	var b strings.Builder

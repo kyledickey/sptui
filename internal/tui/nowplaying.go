@@ -158,7 +158,7 @@ var lyricsRetries = []time.Duration{10 * time.Second, 30 * time.Second, time.Min
 // view is open. Lyrics already found this session are reused.
 func (m *Model) syncLyrics() tea.Cmd {
 	t := m.player.track()
-	if !m.showingNowPlaying() || t == nil || t.URI == m.lyrics.uri {
+	if !m.showingNowPlaying() || t == nil || t.URI == m.lyrics.uri || t.IsEpisode() {
 		return nil
 	}
 	if found, ok := m.lyricsFound[t.URI]; ok {
@@ -366,6 +366,8 @@ func (m *Model) viewLyrics(w, h int) string {
 	switch {
 	case m.player.track() == nil:
 		return m.notice(w, h, "♪", "", "Lyrics show up here while a song plays.", m.st.subtitle)
+	case m.player.track().IsEpisode():
+		return m.notice(w, h, "◉", "", "Podcasts don't have lyrics.", m.st.subtitle)
 	case ly.loading && ly.attempts == 0:
 		return m.notice(w, h, m.spinner.View(), "", "Finding lyrics…", m.st.subtitle)
 	case ly.loading:

@@ -166,6 +166,10 @@ func (b *Backend) contextTracks(uri string) []spotify.Track {
 			out = append(out, b.albumTracks(al.URI)...)
 		}
 		return out
+	case strings.HasPrefix(uri, "spotify:show:"):
+		return b.showEpisodes(uri)
+	case strings.HasSuffix(uri, ":collection:your-episodes"):
+		return b.savedEpisodes()
 	case strings.HasSuffix(uri, ":collection"):
 		return slices.Clone(b.liked)
 	}

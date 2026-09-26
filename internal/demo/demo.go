@@ -34,6 +34,8 @@ type Backend struct {
 	plTracks  map[string][]spotify.Track
 	devices   []spotify.Device
 	recent    []spotify.Track
+	shows     []spotify.Show
+	episodes  []spotify.Track // every episode of every show, newest first per show
 
 	// Player state.
 	active  int // index into devices, -1 when nothing is active
@@ -64,10 +66,11 @@ func New() *Backend {
 var (
 	artistNames = []string{"Neon Harbor", "Velvet Static", "Paper Moons", "Low Orbit", "Juniper Fox",
 		"Glasshouse Club", "Midnight Arcade", "Sora Blue", "The Quiet Hours", "Copper & Lune"}
-	genres  = []string{"indie pop", "dream pop", "synthwave", "lo-fi", "alt rock", "chillwave", "shoegaze", "electronica"}
-	words1  = []string{"Golden", "Electric", "Silent", "Paper", "Neon", "Wild", "Velvet", "Hollow", "Crystal", "Endless", "Summer", "Midnight"}
-	words2  = []string{"Hearts", "Skies", "Rivers", "Signals", "Dreams", "Lights", "Waves", "Cities", "Echoes", "Roads", "Gardens", "Machines"}
-	devices = []spotify.Device{
+	showNames = []string{"Signal & Noise", "The Long Take", "Small Hours Radio", "Field Notes"}
+	genres    = []string{"indie pop", "dream pop", "synthwave", "lo-fi", "alt rock", "chillwave", "shoegaze", "electronica"}
+	words1    = []string{"Golden", "Electric", "Silent", "Paper", "Neon", "Wild", "Velvet", "Hollow", "Crystal", "Endless", "Summer", "Midnight"}
+	words2    = []string{"Hearts", "Skies", "Rivers", "Signals", "Dreams", "Lights", "Waves", "Cities", "Echoes", "Roads", "Gardens", "Machines"}
+	devices   = []spotify.Device{
 		{ID: "dev-laptop", Name: "Demo Laptop", Type: "Computer", SupportsVolume: true, VolumePercent: ptr(64)},
 		{ID: "dev-phone", Name: "Pocket Phone", Type: "Smartphone", SupportsVolume: true, VolumePercent: ptr(40)},
 		{ID: "dev-kitchen", Name: "Kitchen Speaker", Type: "Speaker", SupportsVolume: true, VolumePercent: ptr(25)},
@@ -134,6 +137,34 @@ func (b *Backend) generate() {
 	b.devices = slices.Clone(devices)
 	for _, i := range r.Perm(len(b.tracks))[:50] {
 		b.recent = append(b.recent, b.tracks[i])
+	}
+
+	for i, name := range showNames {
+		id := fmt.Sprintf("sh%d", i)
+		sh := spotify.Show{
+			ID: id, Name: name, URI: "spotify:show:" + id, Publisher: artistNames[i],
+			Description: "Conversations about " + genres[i] + " and the people who make it.",
+			Images:      coverImages(id),
+		}
+		n := 8 + r.IntN(20)
+		sh.TotalEpisodes = n
+		released := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)
+		for k := range n {
+			eid := fmt.Sprintf("ep%d_%d", i, k)
+			b.episodes = append(b.episodes, spotify.Track{
+				ID: eid, Name: fmt.Sprintf("#%d: %s", n-k, title()), URI: "spotify:episode:" + eid, Type: "episode",
+				Show:       &spotify.Show{ID: sh.ID, Name: sh.Name, URI: sh.URI},
+				DurationMS: (20 + r.IntN(70)) * 60 * 1000, ReleaseDate: released.AddDate(0, 0, -7*k).Format(time.DateOnly),
+				Images: sh.Images,
+			})
+		}
+		b.shows = append(b.shows, sh)
+		if i < 3 {
+			b.library[sh.URI] = true
+		}
+	}
+	for _, i := range r.Perm(len(b.episodes))[:5] {
+		b.library[b.episodes[i].URI] = true
 	}
 }
 
@@ -268,6 +299,38 @@ func (b *Backend) artistAlbums(id string) []spotify.Album {
 	return filter(b.albums, func(a spotify.Album) bool { return a.Artists[0].ID == id })
 }
 
+func (b *Backend) SavedShows(ctx context.Context, offset int) (spotify.Page[spotify.Show], error) {
+	if err := b.wait(ctx); err != nil {
+		return spotify.Page[spotify.Show]{}, err
+	}
+	defer b.mu.Unlock()
+	return page(filter(b.shows, func(s spotify.Show) bool { return b.library[s.URI] }), offset), nil
+}
+
+func (b *Backend) SavedEpisodes(ctx context.Context, offset int) (spotify.Page[spotify.Track], error) {
+	if err := b.wait(ctx); err != nil {
+		return spotify.Page[spotify.Track]{}, err
+	}
+	defer b.mu.Unlock()
+	return page(b.savedEpisodes(), offset), nil
+}
+
+func (b *Backend) savedEpisodes() []spotify.Track {
+	return filter(b.episodes, func(t spotify.Track) bool { return b.library[t.URI] })
+}
+
+func (b *Backend) ShowEpisodes(ctx context.Context, show spotify.Show, offset int) (spotify.Page[spotify.Track], error) {
+	if err := b.wait(ctx); err != nil {
+		return spotify.Page[spotify.Track]{}, err
+	}
+	defer b.mu.Unlock()
+	return page(b.showEpisodes(show.URI), offset), nil
+}
+
+func (b *Backend) showEpisodes(uri string) []spotify.Track {
+	return filter(b.episodes, func(t spotify.Track) bool { return t.Show.URI == uri })
+}
+
 func (b *Backend) Search(ctx context.Context, query string) (spotify.SearchResults, error) {
 	if err := b.wait(ctx); err != nil {
 		return spotify.SearchResults{}, err
@@ -280,11 +343,15 @@ func (b *Backend) Search(ctx context.Context, query string) (spotify.SearchResul
 	albums := filter(b.albums, func(a spotify.Album) bool { return has(a.Name, spotify.JoinArtists(a.Artists)) })
 	artists := filter(b.artists, func(a spotify.Artist) bool { return has(a.Name) })
 	pls := filter(b.playlists, func(p spotify.Playlist) bool { return has(p.Name) })
+	shows := filter(b.shows, func(s spotify.Show) bool { return has(s.Name, s.Publisher) })
+	episodes := filter(b.episodes, func(t spotify.Track) bool { return has(t.Name) })
 	return spotify.SearchResults{
 		Tracks:    tracks[:first10(len(tracks))],
 		Albums:    albums[:first10(len(albums))],
 		Artists:   artists[:first10(len(artists))],
 		Playlists: pls[:first10(len(pls))],
+		Shows:     shows[:first10(len(shows))],
+		Episodes:  episodes[:first10(len(episodes))],
 	}, nil
 }
 
@@ -307,7 +374,7 @@ func (b *Backend) SaveToLibrary(ctx context.Context, uris []string) error {
 	defer b.mu.Unlock()
 	for _, u := range uris {
 		b.library[u] = true
-		if t, ok := b.findTrack(u); ok && !slices.ContainsFunc(b.liked, func(l spotify.Track) bool { return l.URI == u }) {
+		if t, ok := b.findTrack(u); ok && !t.IsEpisode() && !slices.ContainsFunc(b.liked, func(l spotify.Track) bool { return l.URI == u }) {
 			b.liked = append([]spotify.Track{t}, b.liked...)
 		}
 	}
@@ -347,11 +414,12 @@ func (b *Backend) AddToPlaylist(ctx context.Context, id string, uris []string) e
 }
 
 func (b *Backend) findTrack(uri string) (spotify.Track, bool) {
-	i := slices.IndexFunc(b.tracks, func(t spotify.Track) bool { return t.URI == uri })
-	if i < 0 {
-		return spotify.Track{}, false
+	for _, list := range [][]spotify.Track{b.tracks, b.episodes} {
+		if i := slices.IndexFunc(list, func(t spotify.Track) bool { return t.URI == uri }); i >= 0 {
+			return list[i], true
+		}
 	}
-	return b.tracks[i], true
+	return spotify.Track{}, false
 }
 
 func filter[T any](items []T, keep func(T) bool) []T {

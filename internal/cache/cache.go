@@ -207,6 +207,25 @@ func (c *Library) ArtistAlbums(ctx context.Context, id string, offset int) (spot
 	})
 }
 
+func (c *Library) SavedShows(ctx context.Context, offset int) (spotify.Page[spotify.Show], error) {
+	return get(ctx, c, changing, "shows", []any{offset}, func() (spotify.Page[spotify.Show], error) {
+		return c.Library.SavedShows(ctx, offset)
+	})
+}
+
+func (c *Library) SavedEpisodes(ctx context.Context, offset int) (spotify.Page[spotify.Track], error) {
+	return get(ctx, c, changing, "episodes", []any{offset}, func() (spotify.Page[spotify.Track], error) {
+		return c.Library.SavedEpisodes(ctx, offset)
+	})
+}
+
+// ShowEpisodes stays fresh as long as a playlist: new episodes come often.
+func (c *Library) ShowEpisodes(ctx context.Context, show spotify.Show, offset int) (spotify.Page[spotify.Track], error) {
+	return get(ctx, c, changing, "show", []any{show.ID, offset}, func() (spotify.Page[spotify.Track], error) {
+		return c.Library.ShowEpisodes(ctx, show, offset)
+	})
+}
+
 func (c *Library) Search(ctx context.Context, query string) (spotify.SearchResults, error) {
 	return get(ctx, c, changing, "search", []any{strings.ToLower(query)}, func() (spotify.SearchResults, error) {
 		return c.Library.Search(ctx, query)
@@ -290,6 +309,10 @@ func kindsFor(uris []string) []string {
 			kinds = append(kinds, "artists")
 		case strings.HasPrefix(u, "spotify:playlist:"):
 			kinds = append(kinds, "playlists")
+		case strings.HasPrefix(u, "spotify:show:"):
+			kinds = append(kinds, "shows")
+		case strings.HasPrefix(u, "spotify:episode:"):
+			kinds = append(kinds, "episodes")
 		}
 	}
 	return kinds

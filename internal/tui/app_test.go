@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/png"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -384,7 +385,7 @@ func TestFilterOnSearchPageDoesNotSearch(t *testing.T) {
 func TestOwnPlaylistCannotBeUnfollowedByAccident(t *testing.T) {
 	d := newDriver(t, 120, 40)
 	before := len(d.m.sidebar.playlists())
-	d.m.sidebar.cursor = 8 // first playlist, owned by the demo user
+	d.m.sidebar.cursor = 10 // first playlist, owned by the demo user
 	d.press("tab", "enter", "esc")
 	if p := d.page(); p.self != nil {
 		d.m.menu = d.m.actionsMenu(*p.self, nil)
@@ -917,5 +918,52 @@ func TestKittyImagesFillTheirCells(t *testing.T) {
 	// Square in pixels, give or take half a cell.
 	if diff := img.Width - img.Height; diff < -5 || diff > 5 {
 		t.Fatalf("cover box %dx%d px isn't square", img.Width, img.Height)
+	}
+}
+
+func TestPodcasts(t *testing.T) {
+	d := newDriver(t, 120, 40)
+	d.press("tab")
+	d.m.sidebar.cursor = 6 // Podcasts
+	d.press("enter")
+	if p := d.page(); p.title != "Podcasts" || p.kind != kindShow || len(p.rows) == 0 {
+		t.Fatalf("on %q with %d rows", p.title, len(p.rows))
+	}
+	d.press("enter")
+	p := d.page()
+	if !p.episodes || len(d.m.stack) != 2 || len(p.rows) == 0 {
+		t.Fatalf("podcast page not opened: %q depth %d", p.title, len(d.m.stack))
+	}
+	if content := d.m.View().Content; !strings.Contains(content, "RELEASED") {
+		t.Fatalf("episode columns missing:\n%s", content)
+	}
+	d.press("enter")
+	tr := d.m.player.track()
+	if tr == nil || !tr.IsEpisode() || tr.URI != p.rows[0].track.URI {
+		t.Fatalf("playing %+v, want the first episode", tr)
+	}
+	d.press("o")
+	if d.m.lyrics.uri == tr.URI || !strings.Contains(d.m.View().Content, "Podcasts don't have lyrics") {
+		t.Fatal("lyrics looked up for an episode")
+	}
+	d.press("esc", "l")
+	if !strings.HasSuffix(d.m.status.text, "Your Episodes") {
+		t.Fatalf("status = %q", d.m.status.text)
+	}
+}
+
+func TestSearchFindsPodcasts(t *testing.T) {
+	d := newDriver(t, 120, 40)
+	d.press("/")
+	d.typeText("signal")
+	d.press("enter")
+	var sections []string
+	for _, r := range d.page().rows {
+		if r.kind == kindHeader {
+			sections = append(sections, r.header)
+		}
+	}
+	if !slices.Contains(sections, "Podcasts") {
+		t.Fatalf("sections = %v", sections)
 	}
 }

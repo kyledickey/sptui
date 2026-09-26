@@ -34,6 +34,8 @@ func newSidebar() sidebar {
 			{icon: "★", label: "Top Tracks", open: func(m *Model) *page { return topPage(m.backend) }},
 			{icon: "◎", label: "Albums", open: func(m *Model) *page { return albumsPage(m.backend) }},
 			{icon: "♪", label: "Artists", open: func(m *Model) *page { return artistsPage(m.backend) }},
+			{icon: "◉", label: "Podcasts", open: func(m *Model) *page { return podcastsPage(m.backend) }},
+			{icon: "◈", label: "Your Episodes", open: func(m *Model) *page { return episodesPage(m.backend, m.me) }},
 			{icon: "▶", label: "Now Playing", open: func(m *Model) *page { return nowPlayingPage(m.backend) }},
 			{label: "Playlists", header: true},
 		},

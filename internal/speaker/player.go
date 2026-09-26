@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/devgianlu/go-librespot/daemon"
@@ -84,8 +85,15 @@ func (s *Speaker) Playback(ctx context.Context) (*spotify.PlaybackState, error) 
 		DurationMS: t.Duration,
 		Album:      spotify.Album{Name: t.AlbumName, ReleaseDate: t.ReleaseDate},
 	}
-	for _, name := range t.ArtistNames {
-		track.Artists = append(track.Artists, spotify.Artist{Name: name})
+	if strings.HasPrefix(t.Uri, "spotify:episode:") {
+		// The player reports an episode's show as both artist and album.
+		track.Type = "episode"
+		track.Show = &spotify.Show{Name: t.AlbumName}
+		track.Album = spotify.Album{}
+	} else {
+		for _, name := range t.ArtistNames {
+			track.Artists = append(track.Artists, spotify.Artist{Name: name})
+		}
 	}
 	if t.AlbumCoverUrl != nil {
 		track.Album.Images = []spotify.Image{{URL: *t.AlbumCoverUrl}}

@@ -59,11 +59,16 @@ func (a Album) Year() string {
 
 var yearIn = regexp.MustCompile(`\b(1[89]|2[0-9])[0-9]{2}\b`)
 
-// Show is the podcast an episode belongs to.
+// Show is a podcast. Episodes carry a simplified one with only ID, Name
+// and URI.
 type Show struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	URI  string `json:"uri"`
+	ID            string  `json:"id"`
+	Name          string  `json:"name"`
+	URI           string  `json:"uri"`
+	Publisher     string  `json:"publisher"`
+	Description   string  `json:"description"`
+	Images        []Image `json:"images"`
+	TotalEpisodes int     `json:"total_episodes"`
 }
 
 // Track is a playable item. Episodes decode into Track too; they carry Show
@@ -80,6 +85,27 @@ type Track struct {
 	TrackNumber int      `json:"track_number"`
 	Explicit    bool     `json:"explicit"`
 	IsLocal     bool     `json:"is_local"`
+	ReleaseDate string   `json:"release_date"` // episodes only
+	Images      []Image  `json:"images"`       // episodes only
+}
+
+// IsEpisode reports whether t is a podcast episode rather than a song.
+func (t Track) IsEpisode() bool {
+	return t.Type == "episode" || strings.HasPrefix(t.URI, "spotify:episode:")
+}
+
+// Cover returns the track's artwork: the album cover, or for an episode
+// its own image or its show's.
+func (t Track) Cover() []Image {
+	switch {
+	case len(t.Album.Images) > 0:
+		return t.Album.Images
+	case len(t.Images) > 0:
+		return t.Images
+	case t.Show != nil:
+		return t.Show.Images
+	}
+	return nil
 }
 
 // Duration returns the track length.
@@ -197,6 +223,8 @@ type SearchResults struct {
 	Albums    []Album
 	Artists   []Artist
 	Playlists []Playlist
+	Shows     []Show
+	Episodes  []Track
 }
 
 // PlayOptions describes what to start playing. Set either ContextURI (an
@@ -243,6 +271,11 @@ func ID(uri string) string {
 // LikedSongsURI is the playback context for a user's saved tracks.
 func LikedSongsURI(userID string) string {
 	return "spotify:user:" + userID + ":collection"
+}
+
+// YourEpisodesURI is the playback context for a user's saved episodes.
+func YourEpisodesURI(userID string) string {
+	return LikedSongsURI(userID) + ":your-episodes"
 }
 
 type freshKey struct{}

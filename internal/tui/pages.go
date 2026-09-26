@@ -57,6 +57,27 @@ func artistsPage(b Backend) *page {
 	return p
 }
 
+func podcastsPage(b Backend) *page {
+	p := newPage("Podcasts", kindShow, func(ctx context.Context, off int) (chunk, error) {
+		pg, err := b.SavedShows(ctx, off)
+		return fromPage(pg, err, showRow)
+	})
+	p.empty = "You don't follow any podcasts yet. Search with / and press l on one to follow."
+	return p
+}
+
+func episodesPage(b Backend, me spotify.User) *page {
+	p := newPage("Your Episodes", kindTrack, func(ctx context.Context, off int) (chunk, error) {
+		pg, err := b.SavedEpisodes(ctx, off)
+		return fromPage(pg, err, trackRow)
+	})
+	p.context = spotify.YourEpisodesURI(me.ID)
+	p.episodes = true
+	p.subtitle = "Podcast episodes you've saved"
+	p.empty = "No saved episodes yet. Press l on an episode to save it."
+	return p
+}
+
 // nowPlayingPage is the big now-playing view. Its rows are the queue.
 func nowPlayingPage(b Backend) *page {
 	p := newPage("Now Playing", kindTrack, func(ctx context.Context, _ int) (chunk, error) {
@@ -109,11 +130,27 @@ func artistPage(b Backend, ar spotify.Artist) *page {
 	return p
 }
 
+func showPage(b Backend, sh spotify.Show) *page {
+	p := newPage(sh.Name, kindTrack, func(ctx context.Context, off int) (chunk, error) {
+		pg, err := b.ShowEpisodes(ctx, sh, off)
+		return fromPage(pg, err, trackRow)
+	})
+	p.context = sh.URI
+	p.self = ptr(showRow(sh))
+	p.cover = spotify.CoverURL(sh.Images, coverSource)
+	p.about = cleanDescription(sh.Description)
+	p.noAlbum = true
+	p.episodes = true
+	p.subtitle = joinNonEmpty(" · ", "Podcast", sh.Publisher)
+	p.empty = "This podcast has no episodes."
+	return p
+}
+
 func searchPage() *page {
 	p := newPage("Search", kindHeader, nil)
 	p.isSearch = true
 	p.next = -1
-	p.empty = "Type to search songs, artists, albums and playlists."
+	p.empty = "Type to search songs, artists, albums, playlists and podcasts."
 	return p
 }
 
@@ -144,6 +181,8 @@ func searchRows(res spotify.SearchResults) []row {
 	section("Artists", mapRows(res.Artists, artistRow))
 	section("Albums", mapRows(res.Albums, albumRow))
 	section("Playlists", mapRows(res.Playlists, playlistRow))
+	section("Podcasts", mapRows(res.Shows, showRow))
+	section("Episodes", mapRows(res.Episodes, trackRow))
 	return rows
 }
 
@@ -166,6 +205,8 @@ func openRow(b Backend, r row) *page {
 		return artistPage(b, r.artist)
 	case kindPlaylist:
 		return playlistPage(b, r.playlist)
+	case kindShow:
+		return showPage(b, r.show)
 	}
 	return nil
 }

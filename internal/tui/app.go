@@ -467,14 +467,20 @@ func (m *Model) handleSaved(msg savedMsg) tea.Cmd {
 	}
 	name := msg.r.name()
 	var text string
+	episode := msg.r.kind == kindTrack && msg.r.track.IsEpisode()
+	follows := msg.r.kind == kindArtist || msg.r.kind == kindShow
 	switch {
+	case episode && msg.saved:
+		text = "Saved “" + name + "” to Your Episodes"
+	case episode:
+		text = "Removed “" + name + "” from Your Episodes"
 	case msg.r.kind == kindTrack && msg.saved:
 		text = "Liked “" + name + "”"
 	case msg.r.kind == kindTrack:
 		text = "Removed “" + name + "” from Liked Songs"
-	case msg.r.kind == kindArtist && msg.saved:
+	case follows && msg.saved:
 		text = "Following " + name
-	case msg.r.kind == kindArtist:
+	case follows:
 		text = "Unfollowed " + name
 	case msg.saved:
 		text = "Saved “" + name + "” to your library"
@@ -486,9 +492,12 @@ func (m *Model) handleSaved(msg savedMsg) tea.Cmd {
 		return m.reloadPlaylists() // followed playlists appear in the sidebar
 	}
 	if msg.r.kind == kindTrack && !msg.saved {
-		liked := spotify.LikedSongsURI(m.me.ID)
+		saved := spotify.LikedSongsURI(m.me.ID)
+		if episode {
+			saved = spotify.YourEpisodesURI(m.me.ID)
+		}
 		for _, p := range m.stack {
-			if p.context == liked {
+			if p.context == saved {
 				p.remove(msg.r.uri())
 			}
 		}

@@ -297,6 +297,8 @@ func (m *Model) shufflePlay(r row) tea.Cmd {
 		n = r.album.TotalTracks
 	case kindPlaylist:
 		n = r.playlist.TrackCount()
+	case kindShow:
+		n = r.show.TotalEpisodes
 	}
 	if n > 1 {
 		opts.OffsetIndex = rand.IntN(n)

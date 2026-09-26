@@ -109,6 +109,13 @@ or show it — `2` alone makes a lyrics screen, `1` alone a big album-art
 screen — and sptui remembers your choice. `o` or `esc` goes back. Lyrics come from [LRCLIB](https://lrclib.net), a free
 community lyrics database, so they don't count against Spotify's rate limit.
 
+### Podcasts
+
+Podcasts play like everything else. **Podcasts** in the sidebar lists the
+shows you follow, and **Your Episodes** the episodes you've saved; search
+(`/`) finds both too. Open a podcast to see its episodes, newest first. `l`
+follows a podcast or saves an episode.
+
 ### Album art
 
 Covers show in the player bar and at the top of album, playlist and artist

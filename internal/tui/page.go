@@ -17,6 +17,7 @@ const (
 	kindAlbum
 	kindArtist
 	kindPlaylist
+	kindShow
 )
 
 // row is one line in a list. Only the field matching kind is set.
@@ -27,12 +28,14 @@ type row struct {
 	album    spotify.Album
 	artist   spotify.Artist
 	playlist spotify.Playlist
+	show     spotify.Show
 }
 
 func trackRow(t spotify.Track) row       { return row{kind: kindTrack, track: t} }
 func albumRow(a spotify.Album) row       { return row{kind: kindAlbum, album: a} }
 func artistRow(a spotify.Artist) row     { return row{kind: kindArtist, artist: a} }
 func playlistRow(p spotify.Playlist) row { return row{kind: kindPlaylist, playlist: p} }
+func showRow(s spotify.Show) row         { return row{kind: kindShow, show: s} }
 func headerRow(title string) row         { return row{kind: kindHeader, header: title} }
 
 // uri returns the Spotify URI of the row's entity.
@@ -46,6 +49,8 @@ func (r row) uri() string {
 		return r.artist.URI
 	case kindPlaylist:
 		return r.playlist.URI
+	case kindShow:
+		return r.show.URI
 	}
 	return ""
 }
@@ -61,6 +66,8 @@ func (r row) name() string {
 		return r.artist.Name
 	case kindPlaylist:
 		return r.playlist.Name
+	case kindShow:
+		return r.show.Name
 	}
 	return r.header
 }
@@ -80,6 +87,8 @@ func (r row) matches(filter string) bool {
 		hay = r.artist.Name + " " + strings.Join(r.artist.Genres, " ")
 	case kindPlaylist:
 		hay = r.playlist.Name + " " + r.playlist.Owner.Name()
+	case kindShow:
+		hay = r.show.Name + " " + r.show.Publisher
 	}
 	hay = strings.ToLower(hay)
 	for word := range strings.FieldsSeq(strings.ToLower(filter)) {
@@ -144,6 +153,7 @@ type page struct {
 	cover      string // cover image URL
 	about      string // a line under the subtitle, e.g. a playlist description
 	noAlbum    bool   // hide the album column (album pages)
+	episodes   bool   // rows are podcast episodes: label columns for them
 	isSearch   bool
 	query      string
 	live       bool           // reload when the playing track changes (the queue)
