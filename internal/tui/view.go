@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -238,6 +240,9 @@ func (m *Model) viewFooter() string {
 
 // --- sidebar ---
 
+// viewSidebar lists the library and playlists. Headings sit on slabs like
+// the logo's, the selection is a solid accent slab, each playlist shows a
+// block of its cover's colour, and whatever is playing gets an equalizer.
 func (m *Model) viewSidebar() string {
 	w, h := m.sidebarWidth(), m.bodyHeight()
 	inner, rows := w-2, h-2
@@ -245,40 +250,27 @@ func (m *Model) viewSidebar() string {
 	sb.scrollTo(rows)
 	focused := m.focus == focusSidebar && m.menu == nil
 
+	playing := -1
+	if m.player.playing() {
+		if st := m.player.state; st.Context != nil {
+			playing = sb.playingFrom(st.Context.URI)
+		}
+		if playing < 0 {
+			playing = slices.IndexFunc(sb.items, func(it navItem) bool { return it.label == "Now Playing" })
+		}
+	}
+
 	var lines []string
 	for i := sb.scroll; i < len(sb.items) && len(lines) < rows; i++ {
 		it := sb.items[i]
 		if it.header {
-			label := " " + strings.ToUpper(it.label) + " "
-			mark := ""
-			if it.label == "Playlists" {
-				if mark = m.cacheMarker(sb.origin); mark != "" {
-					mark = " " + mark
-				}
-			}
-			rule := strings.Repeat("─", max(0, inner-lipgloss.Width(label)-lipgloss.Width(mark)-1))
-			lines = append(lines, clampWidth(m.st.section.Render(label)+m.st.progressBg.Render(rule)+mark, inner))
+			lines = append(lines, m.sidebarHeading(it, inner))
 			continue
 		}
-		icon := it.icon
-		if icon == "" {
-			icon = " "
-		}
-		text := fit(" "+icon+" "+it.label, inner-1)
-		switch {
-		case i == sb.cursor && focused:
-			lines = append(lines, m.st.cursorBar.Background(m.st.subtle).Render("▌")+
-				m.st.row.Background(m.st.subtle).Bold(true).Render(text))
-		case i == sb.active:
-			lines = append(lines, " "+m.st.rowPlaying.Bold(true).Render(text))
-		case i == sb.cursor:
-			lines = append(lines, " "+m.st.row.Render(text))
-		default:
-			lines = append(lines, " "+m.st.rowMuted.Render(text))
-		}
+		lines = append(lines, m.sidebarRow(it, inner, i == playing, i == sb.cursor && focused, i == sb.active))
 	}
 	if !sb.loaded && rows > len(lines) {
-		lines = append(lines, m.st.rowMuted.Render("   loading playlists…"))
+		lines = append(lines, m.st.rowMuted.Render("   "+m.spinner.View()+" loading playlists…"))
 	}
 
 	style := m.st.panel
@@ -286,6 +278,79 @@ func (m *Model) viewSidebar() string {
 		style = m.st.panelFocused
 	}
 	return style.Width(w).Height(h).Render(strings.Join(lines, "\n"))
+}
+
+// sidebarHeading is a section's name on a slab, with how many playlists
+// there are (and whether they came from the cache) at the right.
+func (m *Model) sidebarHeading(it navItem, w int) string {
+	if it.label == "" {
+		return ""
+	}
+	tag := " " + m.st.tagEdge.Render("▐") + m.st.tag.Render(strings.ToUpper(it.label)) + m.st.tagEdge.Render("▌")
+	var right string
+	if it.label == "Playlists" {
+		if mark := m.cacheMarker(m.sidebar.origin); mark != "" {
+			right = mark + " "
+		} else if n := len(m.sidebar.playlists()); n > 0 {
+			right = m.st.off.Render(strconv.Itoa(n)) + "  " // in line with the song counts
+		}
+	}
+	return spread(tag, right, w)
+}
+
+// sidebarRow is one entry: an icon (or a playlist's colour), the name, an
+// equalizer when it's playing, and a playlist's song count.
+func (m *Model) sidebarRow(it navItem, w int, playing, selected, active bool) string {
+	text, faded := m.st.rowMuted, m.st.off
+	if active {
+		text = m.st.rowPlaying.Bold(true)
+	}
+	if selected {
+		text = m.st.logo
+		faded = m.st.logo.Bold(false)
+	}
+
+	icon := m.st.rowMuted.Render(fit(it.icon, 2))
+	if it.playlist != nil {
+		icon = faded.Render("░░")
+		if hex, ok := m.swatchColor(playlistSwatchURL(*it.playlist)); ok {
+			icon = lipgloss.NewStyle().Foreground(lipgloss.Color(hex)).Render("██")
+		}
+	} else if active || selected {
+		icon = text.Render(fit(it.icon, 2))
+	}
+
+	var tail string
+	if it.playlist != nil {
+		if n := it.playlist.TrackCount(); n > 0 {
+			tail = strconv.Itoa(n)
+		}
+	}
+	eq := ""
+	if playing {
+		eq = equalizer(time.Now())
+	}
+	// edge, space, icon, space, name, eq, count, space, edge
+	nameW := w - 8 - len(tail)
+	if eq != "" {
+		nameW -= 4
+	}
+	body := text.Render(" ") + icon + text.Render(" "+fit(it.label, max(nameW, 1)))
+	if eq != "" {
+		eqStyle := m.st.on
+		if selected {
+			eqStyle = text
+		}
+		body += text.Render(" ") + eqStyle.Render(eq)
+	}
+	body += text.Render(" ") + faded.Render(tail) + text.Render(" ")
+	if selected {
+		return m.st.logoEdge.Render("▐") + body + m.st.logoEdge.Render("▌")
+	}
+	if active {
+		return m.st.cursorBar.Render("▐") + body + " "
+	}
+	return " " + body + " "
 }
 
 // --- main pane ---

@@ -53,13 +53,46 @@ func swatchURL(t spotify.Track) string {
 	return spotify.CoverURL(t.Cover(), swatchSource)
 }
 
+// playlistSwatchURL is the image to take a playlist's colour from.
+func playlistSwatchURL(pl spotify.Playlist) string {
+	return spotify.CoverURL(pl.Images, swatchSource)
+}
+
+// swatchColor is the colour a cover shows as on its own: its vivid hue,
+// else its average. ok is false until the colours arrive.
+func (m *Model) swatchColor(url string) (hex string, ok bool) {
+	sw, ok := m.swatches.known[url]
+	switch {
+	case !ok:
+		return "", false
+	case sw.vivid != "":
+		return sw.vivid, true
+	case sw.average != "":
+		return stripColor(sw.average), true
+	}
+	return "", false
+}
+
 // wantedSwatches lists the images whose colours are on screen: the playing
-// song's when the accent follows it, and a playlist strip's.
+// song's when the accent follows it, the sidebar's playlists, and a
+// playlist strip's.
 func (m *Model) wantedSwatches() []string {
 	var want []string
 	if t := m.player.track(); t != nil && m.cfg.Theme.Accent == AccentFromCover {
 		if url := swatchURL(*t); url != "" {
 			want = append(want, url)
+		}
+	}
+	if !m.showingNowPlaying() {
+		sb := &m.sidebar
+		top := min(sb.scroll, len(sb.items))
+		for _, it := range sb.items[top:min(top+m.bodyHeight(), len(sb.items))] {
+			if it.playlist == nil {
+				continue
+			}
+			if url := playlistSwatchURL(*it.playlist); url != "" && !slices.Contains(want, url) {
+				want = append(want, url)
+			}
 		}
 	}
 	if p := m.current(); p != nil && p.strip {

@@ -22,6 +22,8 @@ type styles struct {
 
 	logo        lipgloss.Style // the name, on an accent slab
 	logoEdge    lipgloss.Style // the slab's half-block ends
+	tag         lipgloss.Style // a sidebar heading, on a quiet slab
+	tagEdge     lipgloss.Style
 	crumb       lipgloss.Style
 	crumbActive lipgloss.Style
 
@@ -74,6 +76,8 @@ func newStyles(accentHex string, dark bool) styles {
 
 	s.logo = base.Foreground(inkOn(accentHex)).Background(s.accent).Bold(true)
 	s.logoEdge = base.Foreground(s.accent)
+	s.tag = base.Foreground(s.text).Background(s.faint).Bold(true)
+	s.tagEdge = base.Foreground(s.faint)
 	s.crumb = base.Foreground(s.muted)
 	s.crumbActive = base.Foreground(s.text).Bold(true)
 
