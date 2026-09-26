@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -101,7 +102,12 @@ type Model struct {
 	spinner  spinner.Model
 	spinning bool
 	covers   covers
-	lyrics   lyricsState
+	swatches swatches // cover colours
+
+	accentShown string    // the accent the styles were built with
+	selected    string    // which row is selected, to notice when it changes
+	selectedAt  time.Time // when it did, for scrolling its title
+	lyrics      lyricsState
 	// lyricsFound remembers answers (including "none") for this session.
 	lyricsFound map[string]lyricsState
 
@@ -171,6 +177,7 @@ func New(b Backend, opts Options) *Model {
 		focus:       focusMain,
 		spinner:     spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		covers:      newCovers(artMode(opts.Config)),
+		swatches:    newSwatches(),
 		cfg:         opts.Config,
 		lyricsFound: map[string]lyricsState{},
 		dark:        true,
@@ -191,7 +198,12 @@ func artMode(cfg config.Config) art.Mode {
 
 func (m *Model) setTheme(dark bool) {
 	m.dark = dark
-	m.st = newStyles(m.cfg.Theme.Accent, dark)
+	m.accentShown = m.accentHex()
+	accent := m.accentShown
+	if m.cfg.Theme.Accent == AccentFromCover {
+		accent = readable(accent, dark)
+	}
+	m.st = newStyles(accent, dark)
 	m.spinner.Style = m.st.status
 	s := textinput.DefaultStyles(dark)
 	s.Focused.Text = m.st.row
@@ -217,7 +229,23 @@ func (m *Model) Init() tea.Cmd {
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmd := m.update(msg)
 	m.syncAwake()
-	return m, tea.Batch(cmd, m.syncCovers(), m.syncLyrics())
+	m.syncSelected()
+	m.syncAccent()
+	return m, tea.Batch(cmd, m.syncCovers(), m.syncSwatches(), m.syncLyrics())
+}
+
+// syncSelected notes when the selected row changes, so a long title under
+// the cursor starts scrolling from its beginning.
+func (m *Model) syncSelected() {
+	sel := ""
+	if p := m.current(); p != nil {
+		if r, ok := p.selected(); ok {
+			sel = fmt.Sprint(p.id, r.uri(), p.cursor)
+		}
+	}
+	if sel != m.selected {
+		m.selected, m.selectedAt = sel, time.Now()
+	}
 }
 
 func (m *Model) update(msg tea.Msg) tea.Cmd {
@@ -254,6 +282,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return m.setLyrics(msg)
 	case lyricsRetryMsg:
 		return m.retryLyrics(msg)
+	case swatchMsg:
+		m.handleSwatch(msg)
+		return nil
 	}
 	return m.handleData(msg)
 }
@@ -289,10 +320,13 @@ func (m *Model) handleData(msg tea.Msg) tea.Cmd {
 		if !m.status.until.IsZero() && now.After(m.status.until) {
 			m.status = status{}
 		}
-		// Tick faster while lyrics follow the song.
+		// Tick faster while lyrics follow the song, and while things move.
 		next := tickEvery
 		if m.showingNowPlaying() {
 			next = min(next, lyricsTick)
+		}
+		if m.animating() {
+			next = min(next, animTick)
 		}
 		cmds := []tea.Cmd{tickAfter(next)}
 		if m.player.due(now) {
@@ -449,6 +483,7 @@ func (m *Model) setPlayback(msg playbackMsg, now time.Time) tea.Cmd {
 		return nil
 	}
 	m.log.Debug("now playing", "track", t.Name, "artist", t.ArtistNames())
+	m.player.since = now
 	var cmds []tea.Cmd
 	if t.URI != m.player.likedURI {
 		m.player.likedURI, m.player.liked = t.URI, false
@@ -675,7 +710,7 @@ func (m *Model) openSearch() tea.Cmd {
 
 func (m *Model) openFilter() tea.Cmd {
 	p := m.current()
-	if p == nil {
+	if p == nil || p.home {
 		return nil
 	}
 	m.inputMode = inputFilter

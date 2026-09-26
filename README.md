@@ -41,8 +41,9 @@ account.
 
 ### Settings
 
-Press `,` for the settings screen: colours, album art on/off, the now-playing
-cover size, keeping the screen awake, the built-in player (on/off, device
+Press `,` for the settings screen: colours (including one that follows the
+cover art of whatever's playing), scrolling long titles, album art on/off,
+the now-playing cover size, keeping the screen awake, the built-in player (on/off, device
 name, audio output, quality),
 your own Spotify app, and logging out. Changes are saved as you make them.
 Appearance changes apply at once; the rest offer a one-key restart.
@@ -63,7 +64,8 @@ backend = ""            # "pulseaudio" (also PipeWire), "alsa", ... ; "" = auto
 bitrate = 320           # 96, 160 or 320
 
 [theme]
-accent = "#1ed760"
+accent = "#1ed760"      # or "cover" to take it from the playing song's cover
+scroll_titles = true    # scroll titles too long to fit
 cover_art = "auto"      # "kitty", "blocks", "off"
 ```
 
@@ -99,6 +101,32 @@ and not to go to sleep when idle, like video and music players do (closing
 the lid or choosing Sleep still works). Change it under **Keep screen awake**
 in settings: while playing (default), always while sptui is open, or off.
 Works on Linux desktops (KDE, GNOME and others, over D-Bus) and macOS.
+
+### Home
+
+sptui opens on **Home**: a greeting and a sparkline of your week's
+listening, covers of what you played recently to **jump back in** to (walk
+them with `←` `→`), the songs you've had **on repeat**, and **new episodes**
+of podcasts you follow. It's built from Recently Played, so it costs only a
+few (cached) requests.
+
+### Pages
+
+Albums, playlists, artists and podcasts open with their cover, the numbers
+(songs and running time, new episodes) and buttons to play (`P`) or shuffle
+(`S`) the whole thing. Album pages draw each song's length as a bar, artist
+pages spell the artist's name in big letters over a timeline of their
+releases, playlists get a strip made of every song's cover colour (with a
+marker under the one playing), and podcast episodes show how far you got.
+Search results have tabs, `1`–`6`, for all, songs, artists, albums,
+playlists and podcasts, and a card for the top result.
+
+The player bar's top edge is its progress bar, and long titles scroll past
+like a marquee (turn that off in settings). `?` shows a map of the keyboard.
+
+Showing how far you got through episodes needs a permission sptui didn't ask
+for before, so after updating, sptui asks you to approve its browsing app
+again, once.
 
 ### Now playing and lyrics
 
@@ -156,7 +184,8 @@ them. When in doubt, press **`m`** on anything to see what you can do with it.
 | `l`         | like / save / follow          | `L`       | like now playing        |
 | `a`         | add to queue                  | `ctrl+r`  | reload                  |
 | `u`         | account / log out             | `o`       | now playing + lyrics    |
-| `,`         | settings                      |           |                         |
+| `,`         | settings                      | `P` / `S` | play / shuffle this page |
+| `1`–`6`     | search result tabs            |           |                         |
 | `g` / `G`   | top / bottom                  | `q`       | quit                    |
 
 Mouse: scroll with the wheel, click to select, click again to play or open.

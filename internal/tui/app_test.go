@@ -52,7 +52,7 @@ type driver struct {
 const idle = 50 * time.Millisecond
 
 func init() {
-	tickEvery, lyricsTick = time.Hour, time.Hour // ticks would never settle
+	tickEvery, lyricsTick, animTick = time.Hour, time.Hour, time.Hour // ticks would never settle
 	settleDelay, searchDebounce, volumeDebounce, localGrace = time.Millisecond, time.Millisecond, time.Millisecond, 0
 }
 
@@ -70,7 +70,32 @@ func newDriverWith(t *testing.T, w, h int, b Backend, opts Options) *driver {
 	d := &driver{t: t, m: New(b, opts)}
 	d.m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	d.run(d.m.Init())
+	// Most tests start from a plain list, as sptui did before its home page.
+	if p := d.m.current(); p != nil && p.home {
+		d.open("Liked Songs")
+	}
 	return d
+}
+
+// navIndex is where the sidebar item labelled label is ("playlist" finds
+// the first playlist).
+func (d *driver) navIndex(label string) int {
+	d.t.Helper()
+	for i, it := range d.m.sidebar.items {
+		if it.label == label || (label == "playlist" && it.playlist != nil) {
+			return i
+		}
+	}
+	d.t.Fatalf("no sidebar item %q", label)
+	return 0
+}
+
+// open opens the sidebar item labelled label.
+func (d *driver) open(label string) {
+	d.t.Helper()
+	i := d.navIndex(label)
+	d.m.sidebar.cursor = i
+	d.run(d.m.openNav(i))
 }
 
 // run executes cmd and everything it leads to until things go quiet.
@@ -234,7 +259,7 @@ func TestSearch(t *testing.T) {
 func TestOpenArtistThenBack(t *testing.T) {
 	d := newDriver(t, 120, 40)
 	d.press("tab", "G", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k") // walk up from the last playlist
-	d.m.sidebar.cursor = 5                                                // Artists
+	d.m.sidebar.cursor = d.navIndex("Artists")
 	d.press("enter")
 	if d.page().title != "Artists" {
 		t.Fatalf("on %q", d.page().title)
@@ -345,7 +370,9 @@ func TestMouse(t *testing.T) {
 		t.Fatal("second click should play the row")
 	}
 	// Clicking a sidebar item opens it.
-	d.run(func() tea.Msg { return tea.MouseClickMsg{X: 3, Y: top + 2, Button: tea.MouseLeft} })
+	d.run(func() tea.Msg {
+		return tea.MouseClickMsg{X: 3, Y: top + d.navIndex("Recently Played"), Button: tea.MouseLeft}
+	})
 	if d.page().title != "Recently Played" {
 		t.Fatalf("sidebar click opened %q", d.page().title)
 	}
@@ -385,7 +412,7 @@ func TestFilterOnSearchPageDoesNotSearch(t *testing.T) {
 func TestOwnPlaylistCannotBeUnfollowedByAccident(t *testing.T) {
 	d := newDriver(t, 120, 40)
 	before := len(d.m.sidebar.playlists())
-	d.m.sidebar.cursor = 10 // first playlist, owned by the demo user
+	d.m.sidebar.cursor = d.navIndex("playlist") // owned by the demo user
 	d.press("tab", "enter", "esc")
 	if p := d.page(); p.self != nil {
 		d.m.menu = d.m.actionsMenu(*p.self, nil)
@@ -432,7 +459,7 @@ func TestPlaysOnLocalSpeaker(t *testing.T) {
 // openFirstAlbum goes Albums → first album.
 func (d *driver) openFirstAlbum() {
 	d.t.Helper()
-	d.m.sidebar.cursor = 4 // Albums
+	d.m.sidebar.cursor = d.navIndex("Albums")
 	d.press("tab", "enter", "enter")
 	if p := d.page(); p.cover == "" || !p.noAlbum {
 		d.t.Fatalf("not on an album page with a cover: %q", p.title)
@@ -933,7 +960,7 @@ func TestKittyImagesFillTheirCells(t *testing.T) {
 func TestPodcasts(t *testing.T) {
 	d := newDriver(t, 120, 40)
 	d.press("tab")
-	d.m.sidebar.cursor = 6 // Podcasts
+	d.m.sidebar.cursor = d.navIndex("Podcasts")
 	d.press("enter")
 	if p := d.page(); p.title != "Podcasts" || p.kind != kindShow || len(p.rows) == 0 {
 		t.Fatalf("on %q with %d rows", p.title, len(p.rows))

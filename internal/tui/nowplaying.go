@@ -330,7 +330,7 @@ func (m *Model) viewTrackCard(l npLayout) string {
 	}
 	barW := min(w, max(l.coverCols, 40))
 	lines = append(lines,
-		center(m.st.trackTitle.Render(t.Name)),
+		center(m.st.trackTitle.Render(m.scroll(t.Name, w, m.player.since))),
 		center(m.st.trackArtist.Render(t.ArtistNames())),
 		center(m.st.subtitle.Render(trackMeta(t, m.player.progress(time.Now())))),
 		"",
@@ -359,7 +359,7 @@ func (m *Model) soloInfo(t *spotify.Track, w int, big bool) string {
 	lines := []string{
 		heading,
 		"",
-		m.st.trackTitle.Render(t.Name),
+		m.st.trackTitle.Render(m.scroll(t.Name, w, m.player.since)),
 		m.st.trackArtist.Render(t.ArtistNames()),
 		m.st.subtitle.Render(trackMeta(t, m.player.progress(time.Now()))),
 		"",
@@ -413,6 +413,11 @@ const (
 // keycap draws a bigRows-tall button: glyph in the middle, the key that
 // presses it set into the bottom border. Lit caps glow in the accent.
 func (m *Model) keycap(glyph, key string, lit bool) [bigRows]string {
+	return m.keycapW(glyph, key, lit, capInner)
+}
+
+// keycapW is a keycap whose face is inner cells wide.
+func (m *Model) keycapW(glyph, key string, lit bool, capInner int) [bigRows]string {
 	edge, face, label := m.st.off, m.st.trackTitle, m.st.subtitle
 	if lit {
 		edge, face, label = m.st.on, m.st.on, m.st.on.Bold(true)
@@ -420,10 +425,10 @@ func (m *Model) keycap(glyph, key string, lit bool) [bigRows]string {
 	pad := capInner - lipgloss.Width(glyph)
 	mid := strings.Repeat(" ", pad/2) + face.Render(glyph) + strings.Repeat(" ", pad-pad/2)
 	name := key
-	if len(name) < capInner {
+	if lipgloss.Width(name) < capInner {
 		name = " " + name + " "
 	}
-	dashes := max(capInner-len(name), 0)
+	dashes := max(capInner-lipgloss.Width(name), 0)
 	bottom := edge.Render("╰"+strings.Repeat("─", dashes/2)) + label.Render(name) +
 		edge.Render(strings.Repeat("─", dashes-dashes/2)+"╯")
 	return [bigRows]string{

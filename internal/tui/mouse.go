@@ -66,8 +66,8 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 			}
 			return nil
 		}
-		if p == nil {
-			return nil
+		if p == nil || p.home {
+			return nil // the home page is laid out in tiles and columns
 		}
 		i := p.scroll + ms.Y - top - m.headerHeight(p)
 		if i < 0 || i >= len(p.visible) || p.rows[p.visible[i]].kind == kindHeader {

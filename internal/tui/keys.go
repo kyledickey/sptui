@@ -14,6 +14,7 @@ type keyMap struct {
 	// Playback
 	PlayPause, Next, Prev, SeekBack, SeekFwd key.Binding
 	VolUp, VolDown, Shuffle, Repeat, Devices key.Binding
+	PlayAll, ShuffleAll                      key.Binding
 
 	// Library
 	Like, LikePlaying, Queue, Account key.Binding
@@ -45,16 +46,18 @@ func newKeyMap() keyMap {
 		NowPlaying: b("o", "now playing + lyrics", "o"),
 		Settings:   b(",", "settings", ","),
 
-		PlayPause: b("space", "play/pause", "space"),
-		Next:      b("n", "next", "n"),
-		Prev:      b("p", "previous", "p"),
-		SeekBack:  b("[", "back 10s", "["),
-		SeekFwd:   b("]", "fwd 10s", "]"),
-		VolUp:     b("+", "volume up", "+", "="),
-		VolDown:   b("-", "volume down", "-"),
-		Shuffle:   b("s", "shuffle", "s"),
-		Repeat:    b("r", "repeat", "r"),
-		Devices:   b("d", "devices", "d"),
+		PlayPause:  b("space", "play/pause", "space"),
+		Next:       b("n", "next", "n"),
+		Prev:       b("p", "previous", "p"),
+		SeekBack:   b("[", "back 10s", "["),
+		SeekFwd:    b("]", "fwd 10s", "]"),
+		VolUp:      b("+", "volume up", "+", "="),
+		VolDown:    b("-", "volume down", "-"),
+		Shuffle:    b("s", "shuffle", "s"),
+		Repeat:     b("r", "repeat", "r"),
+		Devices:    b("d", "devices", "d"),
+		PlayAll:    b("P", "play this page", "P"),
+		ShuffleAll: b("S", "shuffle this page", "S"),
 
 		Like:        b("l", "like", "l"),
 		LikePlaying: b("L", "like playing", "L"),
@@ -70,7 +73,7 @@ func newKeyMap() keyMap {
 func (k keyMap) helpGroups() []helpGroup {
 	return []helpGroup{
 		{"Navigate", []key.Binding{k.Up, k.Down, k.Top, k.Bottom, k.PageDown, k.Enter, k.Back, k.Focus, k.Search, k.Filter, k.NowPlaying, k.Reload}},
-		{"Playback", []key.Binding{k.PlayPause, k.Next, k.Prev, k.SeekBack, k.SeekFwd, k.VolUp, k.VolDown, k.Shuffle, k.Repeat, k.Devices}},
+		{"Playback", []key.Binding{k.PlayPause, k.Next, k.Prev, k.SeekBack, k.SeekFwd, k.VolUp, k.VolDown, k.Shuffle, k.Repeat, k.PlayAll, k.ShuffleAll, k.Devices}},
 		{"Library", []key.Binding{k.Menu, k.NowMenu, k.Like, k.LikePlaying, k.Queue, k.Settings, k.Account, k.Help, k.Quit}},
 	}
 }

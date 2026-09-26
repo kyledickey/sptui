@@ -15,7 +15,7 @@ import (
 const (
 	headerHeight = 1
 	footerHeight = 1
-	playerHeight = 5
+	playerHeight = 4
 	pageHeader   = 4 // title, subtitle, spacer/input, column names (without a cover)
 	minWidth     = 60
 	minHeight    = 16
@@ -36,10 +36,20 @@ func (m *Model) contentWidth() int { return m.mainWidth() - 4 }
 // has one and there's room) plus a spacer and the column names, or the
 // plain title block.
 func (m *Model) headerHeight(p *page) int {
-	if rows := m.pageCoverRows(); p != nil && p.cover != "" && rows > 0 {
-		return rows + 2
+	if p == nil {
+		return pageHeader
 	}
-	return pageHeader
+	if p.isSearch {
+		return m.searchHeaderLines(p, m.contentWidth())
+	}
+	n := pageHeader
+	if rows := m.pageCoverRows(); p.cover != "" && rows > 0 {
+		n = rows + 2
+	}
+	if p.strip {
+		n++
+	}
+	return n
 }
 
 // listHeight is how many rows fit in the main panel.
@@ -256,6 +266,13 @@ func (m *Model) viewMain() string {
 		return style.Width(w).Height(h).Render(lipgloss.Place(cw, h-2, lipgloss.Center, lipgloss.Center, msg))
 	}
 
+	if p.home {
+		lines := m.viewHome(p, cw, h-2, focused)
+		for i := range lines {
+			lines[i] = clampWidth(lines[i], cw)
+		}
+		return style.Width(w).Height(h).Render(strings.Join(lines, "\n"))
+	}
 	lines := m.pageHeader(p, cw)
 	if p.settings {
 		lines = append(append(lines[:2], ""), m.viewSettings(p, cw, h-2-3)...)
@@ -302,8 +319,10 @@ func (m *Model) viewMain() string {
 	return style.Width(w).Height(h).Render(strings.Join(lines, "\n"))
 }
 
-// pageHeader renders the top of a page: a cover with the title beside it
-// when there is one, else a title block. It is headerHeight(p) lines.
+// pageHeader renders the top of a page: a hero (cover with the title,
+// numbers and buttons beside it) when there is one, else a title block;
+// then a playlist's colour strip, and the column names. It is
+// headerHeight(p) lines.
 func (m *Model) pageHeader(p *page, cw int) []string {
 	// Right of the title: a loading indicator or a count.
 	right := ""
@@ -327,29 +346,36 @@ func (m *Model) pageHeader(p *page, cw int) []string {
 		colHeader = m.columnHeader(p, cw)
 	}
 
-	rows := m.pageCoverRows()
-	if p.cover == "" || rows == 0 {
-		title := spread(m.st.title.Render(clampWidth(p.title, cw-lipgloss.Width(right)-2)), right, cw)
-		subtitle := m.st.subtitle.Render(clampWidth(p.subtitle, cw))
-		if p.isSearch {
-			return []string{title, m.st.on.Render("⌕ ") + m.input.View(), subtitle, ""}
-		}
-		return []string{title, subtitle, "", colHeader}
+	if p.isSearch {
+		return m.viewSearchHeader(p, cw, right)
+	}
+	if p.self != nil && p.cover != "" && m.pageCoverRows() > 0 && !p.loading && p.filter == "" {
+		// The hero counts songs itself; keep only the cache age.
+		right = m.cacheMarker(p.origin)
 	}
 
-	// Cover on the left, text bottom-aligned beside it like a record sleeve.
-	cols := m.coverCols(rows)
-	cover := strings.Split(m.coverView(p.cover, cols, rows), "\n")
-	textW := cw - cols - 3
-	text := make([]string, rows)
-	text[rows-3] = spread(m.st.title.Render(clampWidth(p.title, textW-lipgloss.Width(right)-2)), right, textW)
-	text[rows-2] = m.st.subtitle.Render(clampWidth(p.subtitle, textW))
-	text[rows-1] = m.st.rowMuted.Render(clampWidth(p.about, textW))
-	lines := make([]string, 0, rows+2)
-	for i := range rows {
-		lines = append(lines, cover[i]+"   "+text[i])
+	var lines []string
+	if rows := m.pageCoverRows(); p.cover == "" || rows == 0 {
+		lines = []string{
+			spread(m.st.title.Render(clampWidth(p.title, cw-lipgloss.Width(right)-2)), right, cw),
+			m.st.subtitle.Render(clampWidth(p.subtitle, cw)),
+		}
+	} else {
+		// Cover on the left, text bottom-aligned beside it like a record sleeve.
+		cols := m.coverCols(rows)
+		cover := strings.Split(m.coverView(p.cover, cols, rows), "\n")
+		text := m.heroText(p, cw-cols-3, rows, right)
+		for i := range rows {
+			lines = append(lines, cover[i]+"   "+text[i])
+		}
 	}
-	return append(lines, "", colHeader)
+	if p.strip {
+		strip := m.viewColourStrip(p, cw)
+		lines = append(lines, strip[0], strip[1])
+	} else {
+		lines = append(lines, "")
+	}
+	return append(lines, colHeader)
 }
 
 // cacheMarker is a small note that data came from sptui's cache: how old it
@@ -429,11 +455,16 @@ func (m *Model) columnHeader(p *page, w int) string {
 		names, tailName = []string{"TITLE", "ARTIST", "ALBUM"}, "TIME"
 		switch {
 		case p.episodes && p.noAlbum:
-			names = []string{"TITLE", "RELEASED"}
+			names = []string{"TITLE", "RELEASED      PROGRESS"}
 		case p.episodes:
 			names = []string{"TITLE", "PODCAST", "RELEASED"}
+		case p.lengths:
+			names = []string{"TITLE", "LENGTH"}
 		}
 	case kindAlbum:
+		if p.timeline {
+			return m.st.colHead.Render(clampWidth("  YEAR    RELEASE", w))
+		}
 		names, tailName = []string{"ALBUM", "ARTIST"}, "YEAR"
 	case kindPlaylist:
 		names, tailName = []string{"PLAYLIST", "OWNER"}, "SONGS"
@@ -481,17 +512,22 @@ func (m *Model) renderRow(p *page, i, w int, focused bool) string {
 	flex, tail := columns(r.kind, w, !p.noAlbum)
 	var lead, tailText string
 	var cells []string
+	styled := map[int]string{} // cells drawn with their own colours
 	primary, secondary := bg(m.st.row), bg(m.st.rowMuted)
 	if playing {
 		primary = bg(m.st.rowPlaying.Bold(true))
 	}
+	leadStyle := secondary
 
 	switch r.kind {
 	case kindTrack:
 		t := r.track
 		lead = fmt.Sprintf("%3d ", trackNumber(p, i))
+		if t.IsEpisode() && time.Since(t.Released()) < newEpisodeAge {
+			lead, leadStyle = "  ● ", bg(m.st.on)
+		}
 		if playing {
-			lead = "  ♪ "
+			lead, leadStyle = " "+equalizer(time.Now()), primary
 			if !m.player.playing() {
 				lead = "  ‖ "
 			}
@@ -499,9 +535,13 @@ func (m *Model) renderRow(p *page, i, w int, focused bool) string {
 		cells = []string{t.Name, t.ArtistNames(), t.Album.Name}
 		switch {
 		case t.IsEpisode() && p.noAlbum: // a podcast's own page
-			cells = []string{t.Name, t.ReleaseDate}
+			cells = []string{t.Name, ""}
+			styled[1] = m.episodeProgress(t, flex[1], bg)
 		case t.IsEpisode():
-			cells[2] = t.ReleaseDate
+			cells[2] = shortDate(t.Released())
+		case p.lengths:
+			cells = []string{t.Name, ""}
+			styled[1] = m.lengthBar(p, t, flex[1], playing, bg)
 		}
 		tailText = clock(t.Duration())
 	case kindAlbum:
@@ -509,6 +549,15 @@ func (m *Model) renderRow(p *page, i, w int, focused bool) string {
 		lead = "  ◎ "
 		cells = []string{a.Name, spotify.JoinArtists(a.Artists)}
 		tailText = a.Year()
+		if p.timeline {
+			lead = m.timelineLead(p, i, bg)
+			flex[0] -= lipgloss.Width(lead) - 4
+			cells[1] = joinNonEmpty(" · ", a.AlbumType, songCount(a.TotalTracks))
+			tailText = ""
+			if released(a.ReleaseDate) {
+				styled[-1] = bg(m.st.on.Bold(true)).Render(fmt.Sprintf("%*s", tail, "NEW"))
+			}
+		}
 	case kindArtist:
 		lead = "  ♪ "
 		cells = []string{r.artist.Name, strings.Join(r.artist.Genres, ", ")}
@@ -528,11 +577,11 @@ func (m *Model) renderRow(p *page, i, w int, focused bool) string {
 
 	var b strings.Builder
 	b.WriteString(bg(m.st.cursorBar).Render(bar))
-	leadStyle := secondary
-	if playing {
-		leadStyle = primary
+	if p.timeline && r.kind == kindAlbum {
+		b.WriteString(lead) // already styled
+	} else {
+		b.WriteString(leadStyle.Render(lead))
 	}
-	b.WriteString(leadStyle.Render(lead))
 	for ci, width := range flex {
 		st := secondary
 		if ci == 0 {
@@ -542,16 +591,124 @@ func (m *Model) renderRow(p *page, i, w int, focused bool) string {
 			st = bg(m.st.row)
 		}
 		b.WriteString(bg(lipgloss.NewStyle()).Render("  "))
-		b.WriteString(st.Render(fit(cells[ci], width)))
+		if cell, ok := styled[ci]; ok {
+			b.WriteString(cell)
+			continue
+		}
+		cell := cells[ci]
+		if ci == 0 && selected && focused {
+			cell = m.scroll(cell, width, m.selectedAt)
+		}
+		b.WriteString(st.Render(fit(cell, width)))
 	}
-	if tail > 0 {
+	switch cell, ok := styled[-1]; {
+	case ok:
+		b.WriteString(cell)
+	case tail > 0:
 		b.WriteString(secondary.Render(fmt.Sprintf("%*s", tail, clampWidth(tailText, tail))))
 	}
 	return b.String()
 }
 
-// trackNumber is the 1-based position of visible row i among the page's
-// tracks. Filtering keeps the original numbers so rows are easy to find again.
+// episodeProgress is an episode's release date and how far the user got:
+// "Sep 17   ▰▰▰▰▱▱▱▱ 41 min left", in w cells.
+func (m *Model) episodeProgress(t spotify.Track, w int, bg func(lipgloss.Style) lipgloss.Style) string {
+	date := bg(m.st.rowMuted).Render(fit(shortDate(t.Released()), 13))
+	const cells = 8
+	var bar, note string
+	switch rp := t.ResumePoint; {
+	case rp != nil && rp.FullyPlayed:
+		bar, note = bg(m.st.on).Render(strings.Repeat("▰", cells)), "played ✓"
+	case rp != nil && rp.ResumePositionMS > 0 && t.DurationMS > 0:
+		n := max(1, min(cells-1, rp.ResumePositionMS*cells/t.DurationMS))
+		bar = bg(m.st.on).Render(strings.Repeat("▰", n)) + bg(m.st.off).Render(strings.Repeat("▱", cells-n))
+		note = fmt.Sprintf("%d min left", (t.DurationMS-rp.ResumePositionMS)/60000)
+	default:
+		bar = bg(m.st.off).Render(strings.Repeat("▱", cells))
+	}
+	// Drop the note, then the bar, when they don't fit.
+	s := date + bar + bg(m.st.rowMuted).Render(" "+note)
+	if lipgloss.Width(s) > w {
+		s = date + bar
+	}
+	if lipgloss.Width(s) > w {
+		s = date
+	}
+	return bg(lipgloss.NewStyle()).Render(padRight(clampWidth(s, w), w))
+}
+
+// lengthBar draws a song's length against the longest on the page.
+func (m *Model) lengthBar(p *page, t spotify.Track, w int, playing bool, bg func(lipgloss.Style) lipgloss.Style) string {
+	longest := 0
+	for _, r := range p.rows {
+		longest = max(longest, r.track.DurationMS)
+	}
+	n := 0
+	if longest > 0 {
+		n = max(1, t.DurationMS*min(w, 24)/longest)
+	}
+	st := m.st.off
+	if playing {
+		st = m.st.on
+	}
+	return bg(st).Render(strings.Repeat("▬", n)) + bg(lipgloss.NewStyle()).Render(strings.Repeat(" ", max(0, w-n)))
+}
+
+// timelineLead is the year, branch and dot before a release on an
+// artist's timeline, styled.
+func (m *Model) timelineLead(p *page, i int, bg func(lipgloss.Style) lipgloss.Style) string {
+	a := p.rows[p.visible[i]].album
+	year := a.Year()
+	if i > 0 && p.rows[p.visible[i-1]].album.Year() == year {
+		year = ""
+	}
+	last := i == len(p.visible)-1 && p.next < 0
+	branch := "├"
+	switch {
+	case i == 0 && last:
+		branch = "─"
+	case i == 0:
+		branch = "┬"
+	case last:
+		branch = "└"
+	}
+	dot, dotStyle := "●", m.st.row
+	switch {
+	case released(a.ReleaseDate):
+		dot, dotStyle = "◉", m.st.on
+	case a.AlbumType == "single":
+		dot = "○"
+	case a.AlbumType == "compilation":
+		dot = "◌"
+	}
+	return bg(m.st.subtitle).Render(fmt.Sprintf("%-4s ", year)) + bg(m.st.off).Render(branch+"─") +
+		bg(dotStyle).Render(dot) + bg(lipgloss.NewStyle()).Render(" ")
+}
+
+// released reports whether a release date is within the last few months.
+func released(date string) bool {
+	d, err := time.Parse(time.DateOnly, date)
+	return err == nil && time.Since(d) < 120*24*time.Hour
+}
+
+func songCount(n int) string {
+	if n == 0 {
+		return ""
+	}
+	return plural(n, "song")
+}
+
+// shortDate is "Sep 17", with the year when it isn't this one.
+func shortDate(d time.Time) string {
+	if d.IsZero() {
+		return ""
+	}
+	if d.Year() == time.Now().Year() {
+		return d.Format("Jan 2")
+	}
+	return d.Format("Jan 2 2006")
+}
+
 func trackNumber(p *page, i int) int {
 	if !p.isSearch {
 		return p.visible[i] + 1
@@ -566,95 +723,6 @@ func trackNumber(p *page, i int) int {
 }
 
 // --- player bar ---
-
-func (m *Model) viewPlayer() string {
-	w := m.width
-	cw := w - 4
-	style := m.st.panel.Padding(0, 1).Width(w).Height(playerHeight)
-
-	t := m.player.track()
-	if t == nil {
-		lines := []string{
-			m.st.title.Render("Nothing playing"),
-			m.st.subtitle.Render(m.idleHint()),
-			"",
-		}
-		for i := range lines {
-			lines[i] = clampWidth(lines[i], cw)
-		}
-		return style.Render(strings.Join(lines, "\n"))
-	}
-
-	now := time.Now()
-	st := m.player.state
-	rightW := 0
-	if cw >= 90 {
-		rightW = 32
-	}
-	leftW := cw - rightW
-
-	// Cover thumbnail on the far left.
-	var thumb []string
-	if url := m.thumbURL(); url != "" {
-		thumb = strings.Split(m.coverView(url, m.coverCols(thumbRows), thumbRows), "\n")
-		leftW -= m.coverCols(thumbRows) + 2
-	}
-
-	icon := "▶"
-	if !st.IsPlaying {
-		icon = "‖"
-	}
-	heart := ""
-	if m.player.liked {
-		heart = m.st.on.Render("  ♥")
-	}
-	line1 := m.st.on.Render(icon+"  ") + m.st.trackTitle.Render(clampWidth(t.Name, leftW-8)) + heart
-	sub := t.ArtistNames()
-	line2 := "   " + m.st.trackArtist.Render(clampWidth(sub, leftW/2))
-	if t.Album.Name != "" {
-		line2 += m.st.subtitle.Render(clampWidth(" · "+t.Album.Name, leftW-lipgloss.Width(line2)))
-	}
-
-	pos, dur := m.player.progress(now), t.Duration()
-	elapsed, total := clock(pos), clock(dur)
-	barW := max(leftW-3-len(elapsed)-len(total)-4, 5)
-	filled := 0
-	if dur > 0 {
-		filled = int(float64(barW) * float64(pos) / float64(dur))
-	}
-	filled = min(max(filled, 0), barW)
-	bar := m.st.progress.Render(strings.Repeat("━", filled)) + m.st.progressBg.Render(strings.Repeat("─", barW-filled))
-	line3 := "   " + m.st.subtitle.Render(elapsed) + "  " + bar + "  " + m.st.subtitle.Render(total)
-
-	left := []string{line1, line2, line3}
-	for i := range left {
-		left[i] = clampWidth(left[i], leftW)
-		if thumb != nil {
-			left[i] = thumb[i] + "  " + left[i]
-		}
-	}
-	if rightW == 0 {
-		return style.Render(strings.Join(left, "\n"))
-	}
-
-	onOff := func(on bool, label string) string {
-		if on {
-			return m.st.on.Render(label)
-		}
-		return m.st.off.Render(label)
-	}
-	repeat := repeatLabel(st.RepeatState)
-	right := []string{
-		onOff(st.ShuffleState, "⇄ shuffle") + "   " + onOff(st.RepeatState != spotify.RepeatOff, "↻ repeat "+repeat),
-		m.st.subtitle.Render("◉ " + clampWidth(st.Device.Name, rightW-2)),
-		m.volumeBar(),
-	}
-	var lines []string
-	for i := range 3 {
-		lines = append(lines, spread(left[i], right[i], cw))
-	}
-	return style.Render(strings.Join(lines, "\n"))
-}
 
 func (m *Model) idleHint() string {
 	if m.opts.LocalDevice != "" {
@@ -707,21 +775,4 @@ func (m *Model) viewMenu() string {
 	}
 	lines = append(lines, "", m.st.keyDesc.Render("enter select · esc close"))
 	return m.st.modal.Width(w).Render(strings.Join(lines, "\n"))
-}
-
-func (m *Model) viewHelp() string {
-	var cols []string
-	colW := min(28, (m.width-8)/3)
-	for _, g := range m.keys.helpGroups() {
-		lines := []string{m.st.modalTitle.Render(g.title), ""}
-		for _, b := range g.bindings {
-			h := b.Help()
-			lines = append(lines, m.st.key.Render(fit(h.Key, 8))+m.st.keyDesc.Render(h.Desc))
-		}
-		cols = append(cols, lipgloss.NewStyle().Width(colW).Render(strings.Join(lines, "\n")))
-	}
-	body := lipgloss.JoinHorizontal(lipgloss.Top, cols...)
-	footer := m.st.keyDesc.Width(lipgloss.Width(body)).
-		Render("Tip: press m on anything to see everything you can do with it. Any key closes.")
-	return m.st.modal.Padding(1, 2).Render(body + "\n\n" + footer)
 }

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strings"
@@ -100,6 +101,8 @@ func playlistPage(b Backend, pl spotify.Playlist) *page {
 	p.cover = spotify.CoverURL(pl.Images, coverSource)
 	p.about = cleanDescription(pl.Description)
 	p.subtitle = fmt.Sprintf("Playlist · %s", pl.Owner.Name())
+	p.kicker = "PLAYLIST · BY " + strings.ToUpper(pl.Owner.Name())
+	p.strip = true
 	p.empty = "This playlist is empty."
 	return p
 }
@@ -113,7 +116,9 @@ func albumPage(b Backend, al spotify.Album) *page {
 	p.self = ptr(albumRow(al))
 	p.cover = spotify.CoverURL(al.Images, coverSource)
 	p.noAlbum = true
+	p.lengths = true
 	p.subtitle = joinNonEmpty(" · ", "Album", spotify.JoinArtists(al.Artists), al.Year())
+	p.kicker = strings.ToUpper(joinNonEmpty(" · ", cmp.Or(al.AlbumType, "album"), al.Year()))
 	return p
 }
 
@@ -127,6 +132,7 @@ func artistPage(b Backend, ar spotify.Artist) *page {
 	p.cover = spotify.CoverURL(ar.Images, coverSource)
 	p.about = strings.Join(ar.Genres, ", ")
 	p.subtitle = "Artist · albums and singles"
+	p.timeline = true
 	return p
 }
 
@@ -142,6 +148,7 @@ func showPage(b Backend, sh spotify.Show) *page {
 	p.noAlbum = true
 	p.episodes = true
 	p.subtitle = joinNonEmpty(" · ", "Podcast", sh.Publisher)
+	p.kicker = strings.ToUpper(joinNonEmpty(" · ", "podcast", sh.Publisher))
 	p.empty = "This podcast has no episodes."
 	return p
 }

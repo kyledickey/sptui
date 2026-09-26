@@ -45,8 +45,11 @@ type Player struct {
 
 // Theme holds appearance settings.
 type Theme struct {
-	// Accent is a hex colour like "#1ed760".
+	// Accent is a hex colour like "#1ed760", or "cover" to take it from
+	// the playing song's cover art.
 	Accent string `toml:"accent"`
+	// ScrollTitles scrolls titles too long to fit, instead of cutting them.
+	ScrollTitles bool `toml:"scroll_titles"`
 	// CoverArt is "auto", "kitty" (real images), "blocks" (pixel style) or
 	// "off". Auto uses kitty in terminals known to support it.
 	CoverArt string `toml:"cover_art"`
@@ -62,7 +65,7 @@ type Theme struct {
 func Default() Config {
 	return Config{
 		Player: Player{Enabled: true, Name: "sptui", Bitrate: 320, KeepAwake: "playing"},
-		Theme:  Theme{CoverArt: "auto", NowPlayingCover: "medium", NowPlayingPanels: "123"},
+		Theme:  Theme{CoverArt: "auto", ScrollTitles: true, NowPlayingCover: "medium", NowPlayingPanels: "123"},
 	}
 }
 
@@ -175,7 +178,11 @@ const template = `# sptui configuration. Everything here is optional.
 # keep_awake = "playing"
 
 [theme]
+# A hex colour, or "cover" to follow the playing song's cover art.
 # accent = "#1ed760"
+
+# Scroll song titles that are too long to fit.
+# scroll_titles = true
 
 # Album art: "auto", "kitty" (real images in kitty, Ghostty, and tmux with
 # allow-passthrough), "blocks" (pixel style, any terminal) or "off".

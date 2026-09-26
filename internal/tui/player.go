@@ -39,7 +39,8 @@ type player struct {
 	fetching  bool
 	changedAt time.Time // last optimistic local edit; older fetches are stale
 
-	likedURI string // track the liked flag belongs to
+	since    time.Time // when the current track came on screen, for scrolling its title
+	likedURI string    // track the liked flag belongs to
 	liked    bool
 
 	volumeSeq int           // debounces volume changes

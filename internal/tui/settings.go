@@ -39,6 +39,7 @@ type setting struct {
 var accents = []struct{ name, hex string }{
 	{"green", "#1ed760"}, {"blue", "#4da3ff"}, {"purple", "#b18cff"}, {"pink", "#ff7ab6"},
 	{"orange", "#ff9f43"}, {"teal", "#2dd4bf"}, {"yellow", "#f5d547"}, {"red", "#ff6b6b"},
+	{"from cover art", AccentFromCover},
 }
 
 // artChoices maps what the screen shows to config values.
@@ -64,6 +65,7 @@ func (m *Model) settings() []setting {
 	list := []setting{
 		{
 			section: "Appearance", label: "Accent colour",
+			help:    "From cover art takes the colour from whatever's playing, so sptui re-themes itself with every song.",
 			choices: names(accents),
 			get: func(c config.Config) string {
 				for _, a := range accents {
@@ -81,6 +83,13 @@ func (m *Model) settings() []setting {
 				}
 				return nil
 			},
+		},
+		{
+			section: "Appearance", label: "Scroll long titles",
+			help:    "Titles too long to fit slide past, like a marquee. Off cuts them short with …",
+			choices: []string{"on", "off"},
+			get:     func(c config.Config) string { return onOff(c.Theme.ScrollTitles) },
+			set:     func(c *config.Config, v string) error { c.Theme.ScrollTitles = v == "on"; return nil },
 		},
 		{
 			section: "Appearance", label: "Album art",

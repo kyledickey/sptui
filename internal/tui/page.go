@@ -102,9 +102,10 @@ func (r row) matches(filter string) bool {
 // chunk is one batch of rows from a loader. next is the offset to request
 // the following batch from, or -1 when everything is loaded.
 type chunk struct {
-	rows  []row
-	next  int
-	total int
+	rows     []row
+	next     int
+	total    int
+	homeData *homeData // the home page's extras
 }
 
 // loadFunc fetches rows starting at offset.
@@ -154,6 +155,13 @@ type page struct {
 	about      string // a line under the subtitle, e.g. a playlist description
 	noAlbum    bool   // hide the album column (album pages)
 	episodes   bool   // rows are podcast episodes: label columns for them
+	kicker     string // a small heading over the title, e.g. "ALBUM · 2016"
+	lengths    bool   // draw each song's length as a bar (album pages)
+	timeline   bool   // releases newest first on a timeline (artist pages)
+	strip      bool   // a strip of every song's cover colour (playlists)
+	home       bool   // the home page
+	homeData   *homeData
+	tab        int // search: which kind of result to show, 0 for all
 	isSearch   bool
 	query      string
 	live       bool           // reload when the playing track changes (the queue)
@@ -169,7 +177,14 @@ func newPage(title string, kind rowKind, load loadFunc) *page {
 
 // append adds a loaded chunk.
 func (p *page) append(c chunk) {
+	if c.homeData != nil {
+		p.homeData = c.homeData
+	}
 	p.rows = append(p.rows, c.rows...)
+	if p.timeline {
+		// Newest first. Spotify lists albums, then singles, a page at a time.
+		slices.SortStableFunc(p.rows, func(a, b row) int { return strings.Compare(b.album.ReleaseDate, a.album.ReleaseDate) })
+	}
 	p.next = c.next
 	p.total = max(c.total, len(p.rows))
 	p.refilter()
@@ -219,7 +234,7 @@ func (p *page) setFilter(f string) {
 func (p *page) refilter() {
 	p.visible = p.visible[:0]
 	for i, r := range p.rows {
-		if p.filter == "" || r.matches(p.filter) {
+		if (p.filter == "" || r.matches(p.filter)) && (p.tab == 0 || searchTabs[p.tab].shows(r)) {
 			p.visible = append(p.visible, i)
 		}
 	}

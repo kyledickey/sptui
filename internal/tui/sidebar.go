@@ -29,6 +29,7 @@ func newSidebar() sidebar {
 		cursor: 1,
 		items: []navItem{
 			{label: "Library", header: true},
+			{icon: "⌂", label: "Home", open: func(m *Model) *page { return homePage(m.backend) }},
 			{icon: "♥", label: "Liked Songs", open: func(m *Model) *page { return likedPage(m.backend, m.me) }},
 			{icon: "◷", label: "Recently Played", open: func(m *Model) *page { return recentPage(m.backend) }},
 			{icon: "★", label: "Top Tracks", open: func(m *Model) *page { return topPage(m.backend) }},

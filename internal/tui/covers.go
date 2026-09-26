@@ -17,7 +17,7 @@ import (
 const (
 	coverSource = 300 // preferred source image width in pixels
 	maxImages   = 48  // decoded images kept in memory
-	thumbRows   = 3   // cover size in the player bar
+	thumbRows   = 2   // cover size in the player bar
 )
 
 // coverKey is a cover drawn at a particular size.
@@ -124,9 +124,24 @@ func (m *Model) wantedCovers() []coverKey {
 	if url := m.thumbURL(); url != "" {
 		want = append(want, coverKey{url, m.coverCols(thumbRows), thumbRows})
 	}
-	if p := m.current(); p != nil && p.cover != "" {
+	p := m.current()
+	if p != nil && p.cover != "" {
 		if rows := m.pageCoverRows(); rows > 0 {
 			want = append(want, coverKey{p.cover, m.coverCols(rows), rows})
+		}
+	}
+	if p != nil && p.home {
+		for _, vi := range m.homeShownTiles(p, m.contentWidth()) {
+			if url := tileCover(p.rows[p.visible[vi]]); url != "" {
+				rows := m.homeTileRows()
+				want = append(want, coverKey{url, m.coverCols(rows), rows})
+			}
+		}
+	}
+	if p != nil && m.showCard(p) && m.pageCoverRows() > 0 {
+		r, _ := topResult(p)
+		if url := spotify.CoverURL(rowImages(r), coverSource); url != "" {
+			want = append(want, coverKey{url, m.coverCols(cardRows - 2), cardRows - 2})
 		}
 	}
 	return want

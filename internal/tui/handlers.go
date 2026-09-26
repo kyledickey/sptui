@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"math/rand/v2"
+	"slices"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -34,6 +35,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		switch s := msg.String(); s {
 		case "1", "2", "3":
 			return m.togglePanel(rune(s[0]))
+		}
+	}
+	if p := m.current(); p != nil && p.isSearch && m.focus == focusMain {
+		if s := msg.String(); len(s) == 1 && s[0] >= '1' && int(s[0]-'1') < len(searchTabs) {
+			p.setTab(int(s[0] - '1'))
+			return nil
 		}
 	}
 
@@ -151,6 +158,18 @@ func (m *Model) sidebarKey(msg tea.KeyPressMsg) tea.Cmd {
 
 func (m *Model) listKey(msg tea.KeyPressMsg, p *page) tea.Cmd {
 	k := m.keys
+	if p.home && homeTile(p) {
+		// The tiles are a row: left and right walk along it.
+		tiles := homeSections(p)[homeJump]
+		switch i := slices.Index(tiles, p.cursor); {
+		case msg.String() == "right" && i < len(tiles)-1:
+			p.cursor = tiles[i+1]
+			return nil
+		case msg.String() == "left" && i > 0:
+			p.cursor = tiles[i-1]
+			return nil
+		}
+	}
 	switch {
 	case key.Matches(msg, k.Up):
 		p.move(-1)
@@ -178,6 +197,17 @@ func (m *Model) listKey(msg tea.KeyPressMsg, p *page) tea.Cmd {
 		return m.openFilter()
 	case key.Matches(msg, k.Reload):
 		return m.reload(p)
+	case key.Matches(msg, k.PlayAll):
+		if p.context != "" {
+			return m.play(spotify.PlayOptions{ContextURI: p.context}, nil)
+		}
+	case key.Matches(msg, k.ShuffleAll):
+		switch {
+		case p.self != nil:
+			return m.shufflePlay(*p.self)
+		case p.context != "":
+			return m.shufflePlay(playlistRow(spotify.Playlist{Name: p.title, URI: p.context, Items: &spotify.Count{Total: p.total}}))
+		}
 	case key.Matches(msg, k.Menu):
 		if r, ok := p.selected(); ok {
 			m.menu = m.actionsMenu(r, p)
