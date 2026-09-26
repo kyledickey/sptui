@@ -1,9 +1,6 @@
 package tui
 
-import (
-	"strings"
-	"unicode"
-)
+import "strings"
 
 // A tiny pixel font, 4 pixels tall, drawn two pixels per cell with half
 // blocks, so each letter is 2 lines. Artist pages spell names with it.
@@ -60,7 +57,7 @@ var bannerFont = map[rune][4]string{
 func banner(s string) ([2]string, bool) {
 	var rows [2]strings.Builder
 	for i, r := range []rune(strings.ToUpper(s)) {
-		glyph, ok := bannerFont[unicode.ToUpper(r)]
+		glyph, ok := bannerFont[r]
 		if !ok {
 			return [2]string{}, false
 		}

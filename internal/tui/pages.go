@@ -98,7 +98,7 @@ func playlistPage(b Backend, pl spotify.Playlist) *page {
 		return fromPage(pg, err, trackRow)
 	})
 	p.context = pl.URI
-	p.self = ptr(playlistRow(pl))
+	p.self = new(playlistRow(pl))
 	p.cover = spotify.CoverURL(pl.Images, coverSource)
 	p.about = cleanDescription(pl.Description)
 	p.subtitle = fmt.Sprintf("Playlist · %s", pl.Owner.Name())
@@ -114,7 +114,7 @@ func albumPage(b Backend, al spotify.Album) *page {
 		return fromPage(pg, err, trackRow)
 	})
 	p.context = al.URI
-	p.self = ptr(albumRow(al))
+	p.self = new(albumRow(al))
 	p.cover = spotify.CoverURL(al.Images, coverSource)
 	p.noAlbum = true
 	p.lengths = true
@@ -127,28 +127,30 @@ func artistPage(b Backend, ar spotify.Artist) *page {
 	p := newPage(ar.Name, kindAlbum, func(ctx context.Context, off int) (chunk, error) {
 		pg, err := b.ArtistAlbums(ctx, ar.ID, off)
 		c, err := fromPage(pg, err, albumRow)
-		if err == nil && off == 0 && (len(ar.Images) == 0 || ar.Followers == nil) {
+		if err != nil || off > 0 {
+			return c, err
+		}
+		// The first page also fills in the hero. Neither lookup is essential.
+		if len(ar.Images) == 0 || ar.Followers == nil {
 			// Opened from a song or album, which only name their artists.
 			if full, err := b.Artist(ctx, ar.ID); err == nil {
 				c.artist = &full
 			}
 		}
-		if err == nil && off == 0 {
-			// How much the user plays them, from what's already cached.
-			if recent, err := b.RecentlyPlayed(ctx); err == nil {
-				n := 0
-				for _, t := range recent {
-					if slices.ContainsFunc(t.Artists, func(a spotify.Artist) bool { return a.ID == ar.ID }) {
-						n++
-					}
+		// How much the user plays them, from what's already cached.
+		if recent, err := b.RecentlyPlayed(ctx); err == nil {
+			n := 0
+			for _, t := range recent {
+				if slices.ContainsFunc(t.Artists, func(a spotify.Artist) bool { return a.ID == ar.ID }) {
+					n++
 				}
-				c.artistPlays = &n
 			}
+			c.artistPlays = &n
 		}
-		return c, err
+		return c, nil
 	})
 	p.context = ar.URI
-	p.self = ptr(artistRow(ar))
+	p.self = new(artistRow(ar))
 	p.cover = spotify.CoverURL(ar.Images, coverSource)
 	p.about = strings.Join(ar.Genres, ", ")
 	p.subtitle = "Artist · albums and singles"
@@ -164,7 +166,7 @@ func showPage(b Backend, sh spotify.Show) *page {
 		return fromPage(pg, err, trackRow)
 	})
 	p.context = sh.URI
-	p.self = ptr(showRow(sh))
+	p.self = new(showRow(sh))
 	p.cover = spotify.CoverURL(sh.Images, coverSource)
 	p.about = cleanDescription(sh.Description)
 	p.noAlbum = true
@@ -215,8 +217,6 @@ func searchRows(res spotify.SearchResults) []row {
 	section("Episodes", mapRows(res.Episodes, trackRow))
 	return rows
 }
-
-func ptr[T any](v T) *T { return &v }
 
 func mapRows[T any](items []T, toRow func(T) row) []row {
 	rows := make([]row, len(items))

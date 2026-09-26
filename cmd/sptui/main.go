@@ -136,12 +136,11 @@ func run(args []string) error {
 			return nil
 		case tui.Restart:
 			log.Info("restarting to apply settings")
-		case tui.LogOut, tui.LogIn:
+		case tui.LogOut:
+			return a.logout()
+		case tui.LogIn:
 			if err := a.logout(); err != nil {
 				return err
-			}
-			if outcome == tui.LogOut {
-				return nil
 			}
 		}
 		// Go round again with the saved settings; it logs in if needed.
@@ -273,27 +272,30 @@ func (a *app) logout() error {
 // the other (or none, for apps the user already allowed). It returns a
 // token for the speaker's first login, if it needed one.
 func (a *app) login(ctx context.Context) (speakerToken string, err error) {
-	var steps []*auth.Pending
-	var purposes []string
-	var speakerLogin *auth.Pending
+	var webLogin, speakerLogin *auth.Pending
 	if !a.authn.LoggedIn() {
-		p, err := a.authn.Start("")
-		if err != nil {
+		if webLogin, err = a.authn.Start(""); err != nil {
 			return "", err
 		}
-		steps, purposes = append(steps, p), append(purposes, auth.WebAPI.Purpose)
 	}
 	if a.cfg.Player.Enabled && !speaker.HasLogin(a.speakerState) {
-		next := ""
-		if len(steps) > 0 {
-			next = steps[0].URL // continue with the Web API login
+		next := "" // after approving, continue with the Web API login
+		if webLogin != nil {
+			next = webLogin.URL
 		}
-		p, err := auth.New(auth.Streaming, "", a.log.With("pkg", "auth")).Start(next)
-		if err != nil {
+		if speakerLogin, err = auth.New(auth.Streaming, "", a.log.With("pkg", "auth")).Start(next); err != nil {
 			return "", err
 		}
-		speakerLogin = p
-		steps, purposes = append([]*auth.Pending{p}, steps...), append([]string{auth.Streaming.Purpose}, purposes...)
+	}
+
+	// The speaker's approval page comes first; it hands over to the Web API's.
+	var steps []*auth.Pending
+	var purposes []string
+	if speakerLogin != nil {
+		steps, purposes = append(steps, speakerLogin), append(purposes, auth.Streaming.Purpose)
+	}
+	if webLogin != nil {
+		steps, purposes = append(steps, webLogin), append(purposes, auth.WebAPI.Purpose)
 	}
 	if len(steps) == 0 {
 		return "", nil

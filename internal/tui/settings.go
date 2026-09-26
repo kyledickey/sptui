@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"runtime"
@@ -137,7 +138,7 @@ func (m *Model) settings() []setting {
 			get:  func(c config.Config) string { return c.Player.Name },
 			set: func(c *config.Config, v string) error {
 				if v = strings.TrimSpace(v); v == "" {
-					return fmt.Errorf("the device needs a name")
+					return errors.New("the device needs a name")
 				}
 				c.Player.Name = v
 				return nil
@@ -183,7 +184,7 @@ func (m *Model) settings() []setting {
 			set: func(c *config.Config, v string) error {
 				v = strings.ToLower(strings.TrimSpace(v))
 				if v != "" && !clientIDPattern.MatchString(v) {
-					return fmt.Errorf("a Client ID is 32 letters and numbers, like 1a2b3c…")
+					return errors.New("a Client ID is 32 letters and numbers, like 1a2b3c…")
 				}
 				c.ClientID = v
 				if v != "" && c.RedirectURI == "" {

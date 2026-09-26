@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"strings"
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
@@ -52,12 +51,4 @@ var eqFrames = []string{"▁▅▃", "▃▇▂", "▅▃▆", "▂▆▄", "▆
 
 func equalizer(now time.Time) string {
 	return eqFrames[int(now.UnixMilli()/int64(animTick/time.Millisecond))%len(eqFrames)]
-}
-
-// padRight pads rendered text to w cells.
-func padRight(s string, w int) string {
-	if pad := w - ansi.StringWidth(s); pad > 0 {
-		return s + strings.Repeat(" ", pad)
-	}
-	return s
 }

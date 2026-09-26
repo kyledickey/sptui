@@ -28,6 +28,8 @@ import (
 	"time"
 
 	"golang.org/x/oauth2"
+
+	"github.com/kyledickey/sptui/internal/atomicfile"
 )
 
 // App is a Spotify app that sptui logs in through.
@@ -37,6 +39,9 @@ type App struct {
 	RedirectURI string // registered redirect; "" means any free port on 127.0.0.1
 	Scopes      []string
 }
+
+// scope is the app's scopes as OAuth writes them: space-separated.
+func (app App) scope() string { return strings.Join(app.Scopes, " ") }
 
 // Streaming is Spotify's own desktop client, which librespot uses to log in
 // speakers. Its Web API rate limit is shared by every librespot-based app and
@@ -276,7 +281,7 @@ func (a *Authenticator) loadToken() (*oauth2.Token, error) {
 		return nil, fmt.Errorf("parse token: %w", err)
 	}
 	switch {
-	case saved.ClientID != a.app.ClientID || saved.Scopes != strings.Join(a.app.Scopes, " "):
+	case saved.ClientID != a.app.ClientID || saved.Scopes != a.app.scope():
 		return nil, errors.New("saved login is from an older version of sptui")
 	case saved.Token == nil || saved.Token.RefreshToken == "":
 		return nil, errors.New("saved login has no refresh token")
@@ -291,16 +296,11 @@ func (a *Authenticator) saveToken(tok *oauth2.Token) error {
 	if err := os.MkdirAll(filepath.Dir(a.tokenPath), 0o700); err != nil {
 		return err
 	}
-	data, err := json.Marshal(savedLogin{ClientID: a.app.ClientID, Scopes: strings.Join(a.app.Scopes, " "), Token: tok})
+	data, err := json.Marshal(savedLogin{ClientID: a.app.ClientID, Scopes: a.app.scope(), Token: tok})
 	if err != nil {
 		return err
 	}
-	// Write then rename so a crash never leaves a half-written token.
-	tmp := a.tokenPath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, a.tokenPath)
+	return atomicfile.Write(a.tokenPath, data, 0o600)
 }
 
 // savingSource persists the token whenever it is refreshed.
@@ -337,8 +337,8 @@ func (s *savingSource) Token() (*oauth2.Token, error) {
 // Revoked reports whether err means the saved login is no longer valid, as
 // opposed to a temporary failure talking to Spotify.
 func Revoked(err error) bool {
-	var re *oauth2.RetrieveError
-	return errors.As(err, &re) && re.ErrorCode == "invalid_grant"
+	re, ok := errors.AsType[*oauth2.RetrieveError](err)
+	return ok && re.ErrorCode == "invalid_grant"
 }
 
 func randomString() string {

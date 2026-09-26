@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kyledickey/sptui/internal/atomicfile"
 	"github.com/kyledickey/sptui/internal/spotify"
 	"github.com/kyledickey/sptui/internal/tui"
 )
@@ -109,28 +110,27 @@ func (c *Library) load(path, key string) (value json.RawMessage, saved time.Time
 	return e.Value, e.Saved
 }
 
+// store saves v as the answer for key. A failure only costs a refetch, so
+// it's logged, not returned.
 func (c *Library) store(path, key string, v any) {
-	value, err := json.Marshal(v)
-	if err == nil {
-		var data []byte
-		if data, err = json.Marshal(entry{Key: key, Saved: time.Now(), Value: value}); err == nil {
-			err = writeFile(path, data)
-		}
-	}
-	if err != nil {
+	if err := write(path, key, v); err != nil {
 		c.log.Warn("cache write failed", "what", key, "err", err)
 	}
 }
 
-func writeFile(path string, data []byte) error {
+func write(path, key string, v any) error {
+	value, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(entry{Key: key, Saved: time.Now(), Value: value})
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return atomicfile.Write(path, data, 0o600)
 }
 
 // path names the file for key. Files are grouped by kind so a whole kind can

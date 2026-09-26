@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
 	"github.com/kyledickey/sptui/internal/spotify"
 )
 
@@ -260,37 +261,28 @@ func (m *Model) viewMain() string {
 		style = m.st.panelFocused.Padding(0, 1)
 	}
 
+	// box frames lines in the panel, cut to fit inside it.
+	box := func(lines []string) string {
+		return style.Width(w).Height(h).Render(crop(strings.Join(lines, "\n"), cw, h-2))
+	}
+
 	p := m.current()
-	if p == nil {
+	switch {
+	case p == nil:
 		msg := m.spinner.View() + " Loading your library…"
 		if m.status.err {
 			msg = m.st.errText.Render(m.status.text)
 		}
 		return style.Width(w).Height(h).Render(lipgloss.Place(cw, h-2, lipgloss.Center, lipgloss.Center, msg))
-	}
-
-	if p.home {
-		lines := m.viewHome(p, cw, h-2, focused)
-		for i := range lines {
-			lines[i] = clampWidth(lines[i], cw)
-		}
-		return style.Width(w).Height(h).Render(strings.Join(lines, "\n"))
+	case p.home:
+		return box(m.viewHome(p, cw, h-2, focused))
+	case p.grid:
+		return box(append(m.pageHeader(p, cw), m.viewGrid(p, cw, focused)...))
+	case p.settings:
+		title := m.pageHeader(p, cw)[:2]
+		return box(append(append(title, ""), m.viewSettings(p, cw, h-2-3)...))
 	}
 	lines := m.pageHeader(p, cw)
-	if p.grid {
-		lines = append(lines, m.viewGrid(p, cw, focused)...)
-		for i := range lines {
-			lines[i] = clampWidth(lines[i], cw)
-		}
-		return style.Width(w).Height(h).Render(strings.Join(lines[:min(len(lines), h-2)], "\n"))
-	}
-	if p.settings {
-		lines = append(append(lines[:2], ""), m.viewSettings(p, cw, h-2-3)...)
-		for i := range lines {
-			lines[i] = clampWidth(lines[i], cw)
-		}
-		return style.Width(w).Height(h).Render(strings.Join(lines[:min(len(lines), h-2)], "\n"))
-	}
 
 	listH := m.listHeight()
 	p.scrollTo(listH)
@@ -320,13 +312,7 @@ func (m *Model) viewMain() string {
 	case p.filter != "":
 		lines = append(lines, m.st.on.Render("filter › ")+m.st.row.Render(p.filter)+m.st.rowMuted.Render("   esc to clear"))
 	}
-	for i := range lines {
-		lines[i] = clampWidth(lines[i], cw)
-	}
-	if len(lines) > h-2 {
-		lines = lines[:h-2]
-	}
-	return style.Width(w).Height(h).Render(strings.Join(lines, "\n"))
+	return box(lines)
 }
 
 // pageHeader renders the top of a page: a hero (cover with the title,
@@ -340,7 +326,7 @@ func (m *Model) pageHeader(p *page, cw int) []string {
 	case p.loading:
 		right = m.spinner.View() + m.st.subtitle.Render(" loading")
 	case p.filter != "":
-		right = m.st.subtitle.Render(fmt.Sprintf("%d of %d", m.countVisible(p), len(p.rows)))
+		right = m.st.subtitle.Render(fmt.Sprintf("%d of %d", countVisible(p), len(p.rows)))
 	case p.total > 0 && !p.isSearch:
 		noun := kindNoun[p.kind]
 		if p.episodes {
@@ -415,7 +401,7 @@ func (m *Model) cacheMarker(o spotify.Origin) string {
 	return m.st.off.Render("◷ " + ago(age))
 }
 
-func (m *Model) countVisible(p *page) int {
+func countVisible(p *page) int {
 	n := 0
 	for _, i := range p.visible {
 		if p.rows[i].kind != kindHeader {
@@ -497,7 +483,7 @@ func (m *Model) columnHeader(p *page, w int) string {
 		b.WriteString("  " + fit(names[i], width))
 	}
 	if tail > 0 {
-		b.WriteString(fmt.Sprintf("%*s", tail, tailName))
+		fmt.Fprintf(&b, "%*s", tail, tailName)
 	}
 	return m.st.colHead.Render(b.String())
 }
@@ -518,10 +504,8 @@ func (m *Model) renderRow(p *page, i, w int, focused bool) string {
 		}
 		return s
 	}
-	playing := false
-	if t := m.player.track(); t != nil && r.kind == kindTrack && t.URI == r.track.URI {
-		playing = true
-	}
+	current := m.player.track()
+	playing := current != nil && r.kind == kindTrack && current.URI == r.track.URI
 
 	bar := "  "
 	if selected {
@@ -606,10 +590,7 @@ func (m *Model) renderRow(p *page, i, w int, focused bool) string {
 		}
 		b.WriteString(st.Render(fit(cell, width)))
 	}
-	switch cell, ok := styled[-1]; {
-	case ok:
-		b.WriteString(cell)
-	case tail > 0:
+	if tail > 0 {
 		b.WriteString(secondary.Render(fmt.Sprintf("%*s", tail, clampWidth(tailText, tail))))
 	}
 	return b.String()

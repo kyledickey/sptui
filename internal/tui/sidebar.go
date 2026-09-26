@@ -1,8 +1,6 @@
 package tui
 
-import (
-	"github.com/kyledickey/sptui/internal/spotify"
-)
+import "github.com/kyledickey/sptui/internal/spotify"
 
 // navItem is an entry in the sidebar.
 type navItem struct {
@@ -86,12 +84,7 @@ func (s *sidebar) move(delta int) {
 	}
 }
 
+// scrollTo keeps the cursor inside a viewport of height lines.
 func (s *sidebar) scrollTo(height int) {
-	if s.cursor < s.scroll {
-		s.scroll = s.cursor
-	}
-	if s.cursor >= s.scroll+height {
-		s.scroll = s.cursor - height + 1
-	}
-	s.scroll = max(0, min(s.scroll, len(s.items)-height))
+	s.scroll = keepInView(s.scroll, s.cursor, height, len(s.items))
 }

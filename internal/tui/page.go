@@ -72,6 +72,24 @@ func (r row) name() string {
 	return r.header
 }
 
+// cover returns the URL of the row's artwork, or "" if it has none.
+func (r row) cover() string {
+	var images []spotify.Image
+	switch r.kind {
+	case kindTrack:
+		images = r.track.Cover()
+	case kindAlbum:
+		images = r.album.Images
+	case kindArtist:
+		images = r.artist.Images
+	case kindPlaylist:
+		images = r.playlist.Images
+	case kindShow:
+		images = r.show.Images
+	}
+	return spotify.CoverURL(images, coverSource)
+}
+
 // matches reports whether the row contains every word of filter.
 func (r row) matches(filter string) bool {
 	if r.kind == kindHeader {
@@ -299,16 +317,21 @@ func (p *page) selectable(start, dir int) int {
 
 // scrollTo keeps the cursor inside a viewport of height lines.
 func (p *page) scrollTo(height int) {
-	if height <= 0 {
-		return
+	if height > 0 {
+		p.scroll = keepInView(p.scroll, p.cursor, height, len(p.visible))
 	}
-	if p.cursor < p.scroll {
-		p.scroll = p.cursor
+}
+
+// keepInView returns the first of n lines to show in a viewport of height
+// lines so that cursor is in it, moving on from scroll as little as needed.
+func keepInView(scroll, cursor, height, n int) int {
+	if cursor < scroll {
+		scroll = cursor
 	}
-	if p.cursor >= p.scroll+height {
-		p.scroll = p.cursor - height + 1
+	if cursor >= scroll+height {
+		scroll = cursor - height + 1
 	}
-	p.scroll = max(0, min(p.scroll, len(p.visible)-height))
+	return max(0, min(scroll, n-height))
 }
 
 // tracks returns every track row and the index of target among them.

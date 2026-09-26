@@ -6,6 +6,8 @@ import (
 	"os"
 
 	librespot "github.com/devgianlu/go-librespot"
+
+	"github.com/kyledickey/sptui/internal/atomicfile"
 )
 
 // stateStore keeps the speaker's device ID, saved login and last volume in a
@@ -35,12 +37,7 @@ func (s *stateStore) Save(state *librespot.AppState) error {
 	if err != nil {
 		return err
 	}
-	// Write then rename so a crash never leaves a half-written file.
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.path)
+	return atomicfile.Write(s.path, data, 0o600)
 }
 
 // forgetLogin drops the saved login, keeping the device ID. It reports

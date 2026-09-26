@@ -8,7 +8,6 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/kyledickey/sptui/internal/art"
-	"github.com/kyledickey/sptui/internal/spotify"
 )
 
 // Tiles are covers with a name and a line about them underneath, laid out
@@ -26,18 +25,6 @@ func (m *Model) tileW(rows int) int { return max(m.coverCols(rows), 14) }
 // tilesFit is how many tiles fit side by side in w cells.
 func (m *Model) tilesFit(rows, w int) int {
 	return max(1, (w+tileGap)/(m.tileW(rows)+tileGap))
-}
-
-func tileCover(r row) string {
-	switch r.kind {
-	case kindAlbum:
-		return spotify.CoverURL(r.album.Images, coverSource)
-	case kindPlaylist:
-		return spotify.CoverURL(r.playlist.Images, coverSource)
-	case kindArtist:
-		return spotify.CoverURL(r.artist.Images, coverSource)
-	}
-	return ""
 }
 
 // tileAbout is the line under a tile's name, and whether it's news.
@@ -62,7 +49,7 @@ func tileAbout(r row) (string, bool) {
 func (m *Model) tile(r row, rows int, selected bool) []string {
 	tw, cols := m.tileW(rows), m.coverCols(rows)
 	var cover []string
-	if url := tileCover(r); url != "" && m.covers.mode != art.Off {
+	if url := r.cover(); url != "" && m.covers.mode != art.Off {
 		cover = strings.Split(m.coverView(url, cols, rows), "\n")
 	} else {
 		cover = m.tilePlaceholder(r, cols, rows)

@@ -8,6 +8,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/kyledickey/sptui/internal/art"
 	"github.com/kyledickey/sptui/internal/spotify"
 )
 
@@ -16,6 +17,35 @@ import (
 // keycap buttons to play or shuffle it. Artists spell their name in big
 // letters, playlists get a strip of their songs' cover colours, and search
 // has tabs for each kind of result and a card for the top one.
+
+const (
+	posterRows = 10 // an artist's poster
+	posterBody = 32 // body height from which an artist gets a poster
+)
+
+// heroRows is how tall a page's hero is (its cover, or just the text
+// when art is off), or 0 when there's no room: artists get a taller
+// poster when there's plenty.
+func (m *Model) heroRows(p *page) int {
+	switch h := m.bodyHeight(); {
+	case h < 18:
+		return 0
+	case p != nil && p.grid && h >= posterBody:
+		return posterRows
+	case h < 26:
+		return 5
+	}
+	return 7
+}
+
+// hasHero reports whether p's header is a hero, and whether it has a cover.
+func (m *Model) hasHero(p *page) (hero, cover bool) {
+	if m.heroRows(p) == 0 {
+		return false, false
+	}
+	cover = p.cover != "" && m.covers.mode != art.Off
+	return p.self != nil || cover, cover
+}
 
 // searchTab is one tab of search results.
 type searchTab struct {
@@ -47,9 +77,8 @@ func (p *page) setTab(tab int) {
 }
 
 const (
-	heroButtonRows = bigRows
-	cardRows       = 5 // the top-result card, borders included
-	cardMinBody    = 28
+	cardRows    = 5 // the top-result card, borders included
+	cardMinBody = 28
 )
 
 // searchTabsW is the width of the search tabs drawn as keycaps.
@@ -97,23 +126,6 @@ func (m *Model) showCard(p *page) bool {
 	return p.isSearch && p.tab == 0 && ok && m.bodyHeight() >= cardMinBody
 }
 
-// rowImages is a row's artwork.
-func rowImages(r row) []spotify.Image {
-	switch r.kind {
-	case kindTrack:
-		return r.track.Cover()
-	case kindAlbum:
-		return r.album.Images
-	case kindArtist:
-		return r.artist.Images
-	case kindPlaylist:
-		return r.playlist.Images
-	case kindShow:
-		return r.show.Images
-	}
-	return nil
-}
-
 // viewSearchHeader is the search page's header: title, input, tabs and the
 // top-result card.
 func (m *Model) viewSearchHeader(p *page, cw int, right string) []string {
@@ -122,15 +134,10 @@ func (m *Model) viewSearchHeader(p *page, cw int, right string) []string {
 	if cw >= searchTabsW() {
 		var caps [][bigRows]string
 		for i, t := range searchTabs {
-			caps = append(caps, m.keycapW(t.label, fmt.Sprint(i+1), i == p.tab, len(t.label)+2))
+			caps = append(caps, m.keycap(t.label, fmt.Sprint(i+1), i == p.tab, len(t.label)+2))
 		}
-		for row := range bigRows {
-			var parts []string
-			for _, c := range caps {
-				parts = append(parts, c[row])
-			}
-			lines = append(lines, strings.Join(parts, " "))
-		}
+		tabs := joinCaps(caps...)
+		lines = append(lines, tabs[:]...)
 	} else {
 		lines = append(lines, m.tabsLine(p, cw))
 	}
@@ -176,7 +183,7 @@ func (m *Model) viewCard(p *page, cw int) []string {
 	inner := w - 4
 	var cover []string
 	cols := 0
-	if url := spotify.CoverURL(rowImages(r), coverSource); url != "" && m.pageCoverRows() > 0 {
+	if url := r.cover(); url != "" && m.covers.mode != art.Off {
 		cols = m.coverCols(cardRows - 2)
 		cover = strings.Split(m.coverView(url, cols, cardRows-2), "\n")
 	}
@@ -242,10 +249,9 @@ func (m *Model) heroText(p *page, w, n int, right string) []string {
 			m.st.subtitle.Render(clampWidth(m.heroStats(p), w)),
 		}
 	}
-	if p.self != nil && n-len(lines) >= heroButtonRows {
-		for _, row := range m.heroButtons() {
-			lines = append(lines, row)
-		}
+	if p.self != nil && n-len(lines) >= bigRows {
+		buttons := m.heroButtons()
+		lines = append(lines, buttons[:]...)
 	}
 	for len(lines) > n {
 		lines = lines[1:] // the kicker goes first
@@ -359,22 +365,13 @@ func (m *Model) heroStats(p *page) string {
 }
 
 // heroButtons are keycaps to play or shuffle the whole page.
-func (m *Model) heroButtons() [heroButtonRows]string {
+func (m *Model) heroButtons() [bigRows]string {
 	k := m.keys
-	caps := [][bigRows]string{
-		m.keycapW("▶ play", k.PlayAll.Help().Key, false, 8),
-		m.keycapW("⇄ shuffle", k.ShuffleAll.Help().Key, false, 11),
-		m.keycapW("⋯ more", k.Menu.Help().Key, false, 8),
-	}
-	var rows [heroButtonRows]string
-	for i := range rows {
-		var parts []string
-		for _, c := range caps {
-			parts = append(parts, c[i])
-		}
-		rows[i] = strings.Join(parts, " ")
-	}
-	return rows
+	return joinCaps(
+		m.keycap("▶ play", k.PlayAll.Help().Key, false, 8),
+		m.keycap("⇄ shuffle", k.ShuffleAll.Help().Key, false, 11),
+		m.keycap("⋯ more", k.Menu.Help().Key, false, 8),
+	)
 }
 
 // chips draws genres as little tags.

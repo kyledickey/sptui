@@ -1,6 +1,7 @@
 // Package speaker runs a Spotify Connect device inside sptui, so music plays
 // right here on this computer. It wraps go-librespot's daemon: Spotify sees
-// sptui as a speaker, and the UI drives it through the normal Web API.
+// sptui as a speaker, and the UI drives it directly, in process (see
+// player.go), without going through the Web API.
 package speaker
 
 import (

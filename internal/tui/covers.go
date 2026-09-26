@@ -56,10 +56,11 @@ func (m *Model) coverCols(rows int) int {
 	return max(1, (rows*h+w/2)/w)
 }
 
-// requestCellSize asks the terminal for its cell size in pixels; the answer
-// arrives as a uv.CellSizeEvent.
+// requestCellSize asks the terminal for its cell size in pixels (xterm's
+// window operation 16); the answer arrives as a uv.CellSizeEvent.
 func requestCellSize() tea.Cmd {
-	return tea.Raw(ansi.WindowOp(ansi.RequestCellSizeWinOp))
+	const reportCellSize = 16
+	return tea.Raw(ansi.WindowOp(reportCellSize))
 }
 
 // setCellSize records the terminal's cell size and redraws covers that were
@@ -132,7 +133,7 @@ func (m *Model) wantedCovers() []coverKey {
 	}
 	if p != nil && p.home {
 		for _, vi := range m.homeShownTiles(p, m.contentWidth()) {
-			if url := tileCover(p.rows[p.visible[vi]]); url != "" {
+			if url := p.rows[p.visible[vi]].cover(); url != "" {
 				rows := m.homeTileRows()
 				want = append(want, coverKey{url, m.coverCols(rows), rows})
 			}
@@ -140,14 +141,14 @@ func (m *Model) wantedCovers() []coverKey {
 	}
 	if p != nil && p.grid {
 		for _, vi := range m.gridShown(p) {
-			if url := tileCover(p.rows[p.visible[vi]]); url != "" {
+			if url := p.rows[p.visible[vi]].cover(); url != "" {
 				want = append(want, coverKey{url, m.coverCols(gridTileRows), gridTileRows})
 			}
 		}
 	}
-	if p != nil && m.showCard(p) && m.pageCoverRows() > 0 {
+	if p != nil && m.showCard(p) {
 		r, _ := topResult(p)
-		if url := spotify.CoverURL(rowImages(r), coverSource); url != "" {
+		if url := r.cover(); url != "" {
 			want = append(want, coverKey{url, m.coverCols(cardRows - 2), cardRows - 2})
 		}
 	}
@@ -161,18 +162,6 @@ func (m *Model) thumbURL() string {
 		return ""
 	}
 	return spotify.CoverURL(t.Cover(), coverSource)
-}
-
-// pageCoverRows is how tall a page's cover is, or 0 if there's no room.
-func (m *Model) pageCoverRows() int {
-	switch h := m.bodyHeight(); {
-	case m.covers.mode == art.Off || h < 18:
-		return 0
-	case h < 26:
-		return 5
-	default:
-		return 7
-	}
 }
 
 // syncCovers fetches and prepares covers that are wanted but missing, and

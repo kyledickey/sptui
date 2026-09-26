@@ -7,6 +7,7 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+
 	"github.com/kyledickey/sptui/internal/spotify"
 )
 
@@ -158,7 +159,7 @@ func (m *Model) sidebarKey(msg tea.KeyPressMsg) tea.Cmd {
 func (m *Model) listKey(msg tea.KeyPressMsg, p *page) tea.Cmd {
 	k := m.keys
 	up, down := key.Matches(msg, k.Up), key.Matches(msg, k.Down)
-	if p.home && m.homeKey(msg.String(), up, down, p) {
+	if p.home && homeKey(msg.String(), up, down, p) {
 		return nil
 	}
 	if p.grid && m.gridKey(msg.String(), up, down, p) {
@@ -234,11 +235,10 @@ func (m *Model) menuKey(msg tea.KeyPressMsg) tea.Cmd {
 	case key.Matches(msg, k.Back, k.Quit, k.Menu, k.Devices):
 		m.menu = nil
 	case key.Matches(msg, k.Enter):
+		m.menu = nil
 		if len(mn.items) == 0 {
-			m.menu = nil
 			return nil
 		}
-		m.menu = nil
 		// run may open another menu (e.g. the playlist picker).
 		return mn.items[mn.cursor].run()
 	}
@@ -260,10 +260,10 @@ func (m *Model) inputKey(msg tea.KeyPressMsg) tea.Cmd {
 	case msg.String() == "enter":
 		mode := m.inputMode
 		m.closeInput()
-		if mode == inputSetting {
+		switch mode {
+		case inputSetting:
 			return m.finishEdit()
-		}
-		if mode == inputSearch {
+		case inputSearch:
 			m.searchSeq++ // cancel the pending debounce
 			return m.runSearch(m.input.Value())
 		}
@@ -329,12 +329,8 @@ func (m *Model) shufflePlay(r row) tea.Cmd {
 	}
 	local := m.wantLocal()
 	return m.act("shuffle play", "Shuffling “"+r.name()+"”", func(ctx context.Context) error {
-		if local {
-			dev, err := m.localDevice(ctx)
-			if err != nil {
-				return err
-			}
-			opts.DeviceID = dev.ID
+		if err := m.playHere(ctx, local, &opts); err != nil {
+			return err
 		}
 		// The random start makes the first song a surprise too.
 		if err := m.startPlayback(ctx, opts, nil); err != nil {

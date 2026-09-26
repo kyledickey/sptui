@@ -5,6 +5,14 @@ import tea "charm.land/bubbletea/v2"
 // wheelStep is how many rows one wheel notch moves.
 const wheelStep = 3
 
+// wheelDelta is how many rows a wheel notch moves: up is negative.
+func wheelDelta(ms tea.Mouse) int {
+	if ms.Button == tea.MouseWheelUp {
+		return -wheelStep
+	}
+	return wheelStep
+}
+
 // handleMouse scrolls the pane under the pointer, and selects what's clicked.
 // Clicking a sidebar item opens it; clicking the selected row plays/opens it.
 func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
@@ -19,12 +27,8 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 	}
 	if m.showingNowPlaying() {
 		// Only the queue scrolls here.
-		if wheel, ok := msg.(tea.MouseWheelMsg); ok {
-			delta := wheelStep
-			if wheel.Button == tea.MouseWheelUp {
-				delta = -wheelStep
-			}
-			m.current().move(delta)
+		if _, ok := msg.(tea.MouseWheelMsg); ok {
+			m.current().move(wheelDelta(ms))
 		}
 		return nil
 	}
@@ -41,10 +45,7 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 
 	switch msg.(type) {
 	case tea.MouseWheelMsg:
-		delta := wheelStep
-		if ms.Button == tea.MouseWheelUp {
-			delta = -wheelStep
-		}
+		delta := wheelDelta(ms)
 		if inSidebar {
 			m.sidebar.move(delta)
 			return nil

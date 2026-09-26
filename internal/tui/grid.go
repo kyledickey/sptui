@@ -1,39 +1,9 @@
 package tui
 
-import "github.com/kyledickey/sptui/internal/art"
-
 // A grid of tiles, for an artist's releases: a wall of covers walked with
 // the arrow keys, scrolling a row of tiles at a time.
 
-const (
-	gridTileRows = 5 // cover height of grid tiles
-	posterRows   = 10
-	posterBody   = 32 // body height from which an artist gets a poster
-)
-
-// heroRows is how tall a page's hero is (its cover, or just the text
-// when art is off), or 0 when there's no room: artists get a taller
-// poster when there's plenty.
-func (m *Model) heroRows(p *page) int {
-	switch h := m.bodyHeight(); {
-	case h < 18:
-		return 0
-	case p != nil && p.grid && h >= posterBody:
-		return posterRows
-	case h < 26:
-		return 5
-	}
-	return 7
-}
-
-// hasHero reports whether p's header is a hero, and whether it has a cover.
-func (m *Model) hasHero(p *page) (hero, cover bool) {
-	if m.heroRows(p) == 0 {
-		return false, false
-	}
-	cover = p.cover != "" && m.covers.mode != art.Off
-	return p.self != nil || cover, cover
-}
+const gridTileRows = 5 // cover height of grid tiles
 
 // gridCols is how many tiles fit across the main pane.
 func (m *Model) gridCols() int { return m.tilesFit(gridTileRows, m.contentWidth()) }

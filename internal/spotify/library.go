@@ -2,6 +2,7 @@ package spotify
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
@@ -251,12 +252,12 @@ func (c *Client) InLibrary(ctx context.Context, uris []string) ([]bool, error) {
 // SaveToLibrary saves tracks, albums or episodes, or follows artists,
 // playlists or podcasts.
 func (c *Client) SaveToLibrary(ctx context.Context, uris []string) error {
-	return c.libraryEdit(ctx, "PUT", uris)
+	return c.libraryEdit(ctx, http.MethodPut, uris)
 }
 
 // RemoveFromLibrary is the inverse of SaveToLibrary.
 func (c *Client) RemoveFromLibrary(ctx context.Context, uris []string) error {
-	return c.libraryEdit(ctx, "DELETE", uris)
+	return c.libraryEdit(ctx, http.MethodDelete, uris)
 }
 
 func (c *Client) libraryEdit(ctx context.Context, method string, uris []string) error {
@@ -270,7 +271,7 @@ func (c *Client) libraryEdit(ctx context.Context, method string, uris []string) 
 
 // AddToPlaylist appends tracks to a playlist.
 func (c *Client) AddToPlaylist(ctx context.Context, playlistID string, uris []string) error {
-	return c.do(ctx, "POST", "/playlists/"+playlistID+"/items", nil, map[string]any{"uris": uris}, nil)
+	return c.do(ctx, http.MethodPost, "/playlists/"+playlistID+"/items", nil, map[string]any{"uris": uris}, nil)
 }
 
 // derefPage drops nil entries, which Spotify sometimes returns for

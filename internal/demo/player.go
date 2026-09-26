@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -36,7 +37,7 @@ func (b *Backend) skip(dir int, manual bool) {
 		b.list = slices.Insert(b.list, b.index+1, b.queue[0])
 		b.queue = b.queue[1:]
 		b.index++
-		b.recent = append([]spotify.Track{b.list[b.index]}, b.recent[:min(len(b.recent), 49)]...)
+		b.played(b.list[b.index])
 		return
 	}
 	next := b.index + dir
@@ -52,7 +53,12 @@ func (b *Backend) skip(dir int, manual bool) {
 		next = 0
 	}
 	b.index = next
-	b.recent = append([]spotify.Track{b.list[next]}, b.recent[:min(len(b.recent), 49)]...)
+	b.played(b.list[next])
+}
+
+// played puts t at the top of the last 50 plays.
+func (b *Backend) played(t spotify.Track) {
+	b.recent = append([]spotify.Track{t}, b.recent[:min(len(b.recent), 49)]...)
 }
 
 func (b *Backend) requireDevice() error {
@@ -129,7 +135,7 @@ func (b *Backend) Play(ctx context.Context, opts spotify.PlayOptions) error {
 	case opts.ContextURI != "":
 		list := b.contextTracks(opts.ContextURI)
 		if len(list) == 0 {
-			return &spotify.Error{Status: 404, Message: "context not found"}
+			return &spotify.Error{Status: http.StatusNotFound, Message: "context not found"}
 		}
 		b.list, b.context = list, opts.ContextURI
 		b.index = min(opts.OffsetIndex, len(list)-1)
@@ -217,7 +223,7 @@ func (b *Backend) Seek(ctx context.Context, ms int) error {
 }
 
 func (b *Backend) SetVolume(ctx context.Context, percent int) error {
-	return b.control(ctx, func() { b.devices[b.active].VolumePercent = ptr(percent) })
+	return b.control(ctx, func() { b.devices[b.active].VolumePercent = new(percent) })
 }
 
 func (b *Backend) SetShuffle(ctx context.Context, on bool) error {

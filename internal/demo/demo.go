@@ -71,13 +71,11 @@ var (
 	words1    = []string{"Golden", "Electric", "Silent", "Paper", "Neon", "Wild", "Velvet", "Hollow", "Crystal", "Endless", "Summer", "Midnight"}
 	words2    = []string{"Hearts", "Skies", "Rivers", "Signals", "Dreams", "Lights", "Waves", "Cities", "Echoes", "Roads", "Gardens", "Machines"}
 	devices   = []spotify.Device{
-		{ID: "dev-laptop", Name: "Demo Laptop", Type: "Computer", SupportsVolume: true, VolumePercent: ptr(64)},
-		{ID: "dev-phone", Name: "Pocket Phone", Type: "Smartphone", SupportsVolume: true, VolumePercent: ptr(40)},
-		{ID: "dev-kitchen", Name: "Kitchen Speaker", Type: "Speaker", SupportsVolume: true, VolumePercent: ptr(25)},
+		{ID: "dev-laptop", Name: "Demo Laptop", Type: "Computer", SupportsVolume: true, VolumePercent: new(64)},
+		{ID: "dev-phone", Name: "Pocket Phone", Type: "Smartphone", SupportsVolume: true, VolumePercent: new(40)},
+		{ID: "dev-kitchen", Name: "Kitchen Speaker", Type: "Speaker", SupportsVolume: true, VolumePercent: new(25)},
 	}
 )
-
-func ptr[T any](v T) *T { return &v }
 
 func (b *Backend) generate() {
 	r := rand.New(rand.NewPCG(7, 11))
@@ -371,20 +369,13 @@ func (b *Backend) Search(ctx context.Context, query string) (spotify.SearchResul
 	defer b.mu.Unlock()
 	q := strings.ToLower(query)
 	has := func(s ...string) bool { return strings.Contains(strings.ToLower(strings.Join(s, " ")), q) }
-	first10 := func(n int) int { return min(n, 10) }
-	tracks := filter(b.tracks, func(t spotify.Track) bool { return has(t.Name, t.ArtistNames()) })
-	albums := filter(b.albums, func(a spotify.Album) bool { return has(a.Name, spotify.JoinArtists(a.Artists)) })
-	artists := filter(b.artists, func(a spotify.Artist) bool { return has(a.Name) })
-	pls := filter(b.playlists, func(p spotify.Playlist) bool { return has(p.Name) })
-	shows := filter(b.shows, func(s spotify.Show) bool { return has(s.Name, s.Publisher) })
-	episodes := filter(b.episodes, func(t spotify.Track) bool { return has(t.Name) })
 	return spotify.SearchResults{
-		Tracks:    tracks[:first10(len(tracks))],
-		Albums:    albums[:first10(len(albums))],
-		Artists:   artists[:first10(len(artists))],
-		Playlists: pls[:first10(len(pls))],
-		Shows:     shows[:first10(len(shows))],
-		Episodes:  episodes[:first10(len(episodes))],
+		Tracks:    first(10, filter(b.tracks, func(t spotify.Track) bool { return has(t.Name, t.ArtistNames()) })),
+		Albums:    first(10, filter(b.albums, func(a spotify.Album) bool { return has(a.Name, spotify.JoinArtists(a.Artists)) })),
+		Artists:   first(10, filter(b.artists, func(a spotify.Artist) bool { return has(a.Name) })),
+		Playlists: first(10, filter(b.playlists, func(p spotify.Playlist) bool { return has(p.Name) })),
+		Shows:     first(10, filter(b.shows, func(s spotify.Show) bool { return has(s.Name, s.Publisher) })),
+		Episodes:  first(10, filter(b.episodes, func(t spotify.Track) bool { return has(t.Name) })),
 	}, nil
 }
 
@@ -463,4 +454,9 @@ func filter[T any](items []T, keep func(T) bool) []T {
 		}
 	}
 	return out
+}
+
+// first returns at most the first n items.
+func first[T any](n int, items []T) []T {
+	return items[:min(n, len(items))]
 }

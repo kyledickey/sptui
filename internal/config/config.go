@@ -2,6 +2,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -10,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/kyledickey/sptui/internal/atomicfile"
 )
 
 // Config is everything a user can configure. Every setting is optional.
@@ -123,7 +126,7 @@ func Load(path string) (Config, error) {
 
 // Save writes cfg to path, replacing what was there.
 func Save(path string, cfg Config) error {
-	var b strings.Builder
+	var b bytes.Buffer
 	b.WriteString("# sptui configuration. Change it here or in sptui's settings (press ,).\n\n")
 	if err := toml.NewEncoder(&b).Encode(cfg); err != nil {
 		return err
@@ -131,11 +134,7 @@ func Save(path string, cfg Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return atomicfile.Write(path, b.Bytes(), 0o644)
 }
 
 // WriteTemplate creates a commented config file at path if none exists.

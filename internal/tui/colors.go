@@ -182,11 +182,11 @@ func swatchOf(img image.Image) swatch {
 
 // readable shifts a colour's lightness so it reads on the background.
 func readable(hex string, dark bool) string {
-	var r, g, b int
-	if _, err := fmt.Sscanf(hex, "#%02x%02x%02x", &r, &g, &b); err != nil {
+	r, g, b, ok := parseHex(hex)
+	if !ok {
 		return hex
 	}
-	h, s, l := hsl(float64(r)/255, float64(g)/255, float64(b)/255)
+	h, s, l := hsl(r, g, b)
 	if dark {
 		l = min(max(l, 0.55), 0.75)
 	} else {
@@ -198,14 +198,24 @@ func readable(hex string, dark bool) string {
 // stripColor is a cover's average, kept away from black and white so every
 // song shows up in the strip.
 func stripColor(hex string) string {
-	var r, g, b int
-	if _, err := fmt.Sscanf(hex, "#%02x%02x%02x", &r, &g, &b); err != nil {
+	r, g, b, ok := parseHex(hex)
+	if !ok {
 		return hex
 	}
-	h, s, l := hsl(float64(r)/255, float64(g)/255, float64(b)/255)
+	h, s, l := hsl(r, g, b)
 	return hexOf(fromHSL(h, min(s*1.3, 1), min(max(l, 0.3), 0.7)))
 }
 
+// parseHex reads a colour like "#1ed760" as red, green and blue in 0–1.
+func parseHex(hex string) (r, g, b float64, ok bool) {
+	var ri, gi, bi int
+	if _, err := fmt.Sscanf(hex, "#%02x%02x%02x", &ri, &gi, &bi); err != nil {
+		return 0, 0, 0, false
+	}
+	return float64(ri) / 255, float64(gi) / 255, float64(bi) / 255, true
+}
+
+// hexOf writes red, green and blue in 0–1 as a colour like "#1ed760".
 func hexOf(r, g, b float64) string {
 	c := func(v float64) int { return int(math.Round(min(max(v, 0), 1) * 255)) }
 	return fmt.Sprintf("#%02x%02x%02x", c(r), c(g), c(b))

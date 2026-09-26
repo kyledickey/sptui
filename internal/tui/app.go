@@ -15,6 +15,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
+
 	"github.com/kyledickey/sptui/internal/art"
 	"github.com/kyledickey/sptui/internal/config"
 	"github.com/kyledickey/sptui/internal/spotify"
@@ -547,8 +548,7 @@ func (m *Model) handleSaved(msg savedMsg) tea.Cmd {
 // pause for other errors, since everything else depends on these loads.
 func retryLater(err error, cmd tea.Cmd) tea.Cmd {
 	wait := 5 * time.Second
-	var apiErr *spotify.Error
-	if errors.As(err, &apiErr) && apiErr.RetryAfter > 0 {
+	if apiErr, ok := errors.AsType[*spotify.Error](err); ok && apiErr.RetryAfter > 0 {
 		wait = apiErr.RetryAfter
 	}
 	return tea.Tick(wait, func(time.Time) tea.Msg { return cmd() })
@@ -634,13 +634,19 @@ func (m *Model) loadMore(p *page) tea.Cmd {
 	id, offset, load, fresh := p.id, max(p.next, 0), p.load, p.fresh
 	m.log.Debug("load page", "page", p.title, "offset", offset, "fresh", fresh)
 	return tea.Batch(m.startSpinner(), m.call(func(ctx context.Context) tea.Msg {
-		if fresh {
-			ctx = spotify.WithFresh(ctx)
-		}
 		var origin spotify.Origin
-		c, err := load(spotify.WithOrigin(ctx, &origin), offset)
+		c, err := load(libraryContext(ctx, fresh, &origin), offset)
 		return pageMsg{id: id, chunk: c, origin: origin, err: err}
 	}))
+}
+
+// libraryContext prepares ctx for a library read: skipping caches when
+// fresh is set, and noting in origin where the answer came from.
+func libraryContext(ctx context.Context, fresh bool, origin *spotify.Origin) context.Context {
+	if fresh {
+		ctx = spotify.WithFresh(ctx)
+	}
+	return spotify.WithOrigin(ctx, origin)
 }
 
 // reload refetches p from Spotify, skipping caches.
@@ -668,11 +674,8 @@ func (m *Model) loadMe() tea.Cmd {
 func (m *Model) loadPlaylists(offset int) tea.Cmd {
 	gen, fresh := m.playlistGen, m.playlistGen > 0 // any reload skips caches
 	return m.call(func(ctx context.Context) tea.Msg {
-		if fresh {
-			ctx = spotify.WithFresh(ctx)
-		}
 		var origin spotify.Origin
-		pg, err := m.backend.Playlists(spotify.WithOrigin(ctx, &origin), offset)
+		pg, err := m.backend.Playlists(libraryContext(ctx, fresh, &origin), offset)
 		return playlistsMsg{gen: gen, offset: offset, page: pg, origin: origin, err: err}
 	})
 }
@@ -758,11 +761,8 @@ func (m *Model) runSearch(q string) tea.Cmd {
 	id, fresh := p.id, p.fresh
 	m.log.Debug("search", "query", q)
 	return tea.Batch(m.startSpinner(), m.call(func(ctx context.Context) tea.Msg {
-		if fresh {
-			ctx = spotify.WithFresh(ctx)
-		}
 		var origin spotify.Origin
-		res, err := m.backend.Search(spotify.WithOrigin(ctx, &origin), q)
+		res, err := m.backend.Search(libraryContext(ctx, fresh, &origin), q)
 		return searchMsg{id: id, query: q, rows: searchRows(res), origin: origin, err: err}
 	}))
 }

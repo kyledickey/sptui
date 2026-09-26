@@ -323,7 +323,7 @@ func (m *Model) viewTrackCard(l npLayout) string {
 	center := func(s string) string { return lipgloss.PlaceHorizontal(w, lipgloss.Center, clampWidth(s, w)) }
 	var lines []string
 	if cover != "" {
-		for _, row := range strings.Split(cover, "\n") {
+		for row := range strings.SplitSeq(cover, "\n") {
 			lines = append(lines, center(row))
 		}
 		lines = append(lines, "")
@@ -410,32 +410,41 @@ const (
 	capsW    = 5*(capInner+2) + 4
 )
 
-// keycap draws a bigRows-tall button: glyph in the middle, the key that
-// presses it set into the bottom border. Lit caps glow in the accent.
-func (m *Model) keycap(glyph, key string, lit bool) [bigRows]string {
-	return m.keycapW(glyph, key, lit, capInner)
-}
-
-// keycapW is a keycap whose face is inner cells wide.
-func (m *Model) keycapW(glyph, key string, lit bool, capInner int) [bigRows]string {
+// keycap draws a bigRows-tall button whose face is inner cells wide: glyph
+// in the middle, the key that presses it set into the bottom border. Lit
+// caps glow in the accent.
+func (m *Model) keycap(glyph, key string, lit bool, inner int) [bigRows]string {
 	edge, face, label := m.st.off, m.st.trackTitle, m.st.subtitle
 	if lit {
 		edge, face, label = m.st.on, m.st.on, m.st.on.Bold(true)
 	}
-	pad := capInner - lipgloss.Width(glyph)
+	pad := inner - lipgloss.Width(glyph)
 	mid := strings.Repeat(" ", pad/2) + face.Render(glyph) + strings.Repeat(" ", pad-pad/2)
 	name := key
-	if lipgloss.Width(name) < capInner {
+	if lipgloss.Width(name) < inner {
 		name = " " + name + " "
 	}
-	dashes := max(capInner-lipgloss.Width(name), 0)
+	dashes := max(inner-lipgloss.Width(name), 0)
 	bottom := edge.Render("╰"+strings.Repeat("─", dashes/2)) + label.Render(name) +
 		edge.Render(strings.Repeat("─", dashes-dashes/2)+"╯")
 	return [bigRows]string{
-		edge.Render("╭" + strings.Repeat("─", capInner) + "╮"),
+		edge.Render("╭" + strings.Repeat("─", inner) + "╮"),
 		edge.Render("│") + mid + edge.Render("│"),
 		bottom,
 	}
+}
+
+// joinCaps lays keycaps side by side, a space apart.
+func joinCaps(caps ...[bigRows]string) [bigRows]string {
+	var rows [bigRows]string
+	for i := range rows {
+		parts := make([]string, len(caps))
+		for j, c := range caps {
+			parts[j] = c[i]
+		}
+		rows[i] = strings.Join(parts, " ")
+	}
+	return rows
 }
 
 // transport draws shuffle, previous, play/pause, next and repeat as
@@ -463,22 +472,14 @@ func (m *Model) transport(st *spotify.PlaybackState, big bool, w int) []string {
 			m.st.subtitle.Render("▶▶"), lit(repeat, repeatGlyph),
 		}, "    ")}
 	}
-	caps := [][bigRows]string{
-		m.keycap("⇄", "s", shuffle),
-		m.keycap("◀◀", "p", false),
-		m.keycap(state, "space", st.IsPlaying),
-		m.keycap(" ▶▶", "n", false), // mirrors ◀◀, which sits left of centre
-		m.keycap(repeatGlyph, "r", repeat),
-	}
-	rows := make([]string, bigRows)
-	for i := range rows {
-		parts := make([]string, len(caps))
-		for j, c := range caps {
-			parts[j] = c[i]
-		}
-		rows[i] = strings.Join(parts, " ")
-	}
-	return rows
+	rows := joinCaps(
+		m.keycap("⇄", "s", shuffle, capInner),
+		m.keycap("◀◀", "p", false, capInner),
+		m.keycap(state, "space", st.IsPlaying, capInner),
+		m.keycap(" ▶▶", "n", false, capInner), // mirrors ◀◀, which sits left of centre
+		m.keycap(repeatGlyph, "r", repeat, capInner),
+	)
+	return rows[:]
 }
 
 // likeAndVolume is the line under the buttons: the heart at the left and
@@ -605,7 +606,7 @@ func (m *Model) viewLyrics(w, h int) string {
 			st = m.st.off
 		}
 		wrapped := lipgloss.NewStyle().Width(w).Align(lipgloss.Center).Render(text)
-		for _, r := range strings.Split(wrapped, "\n") {
+		for r := range strings.SplitSeq(wrapped, "\n") {
 			rows = append(rows, st.Render(r))
 		}
 	}

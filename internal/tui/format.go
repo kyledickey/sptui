@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+
 	"github.com/kyledickey/sptui/internal/spotify"
 )
 
@@ -19,16 +21,20 @@ func fit(s string, w int) string {
 	if w <= 0 {
 		return ""
 	}
-	s = ansi.Truncate(s, w, "…")
-	if pad := w - ansi.StringWidth(s); pad > 0 {
-		s += strings.Repeat(" ", pad)
-	}
-	return s
+	return padRight(ansi.Truncate(s, w, "…"), w)
 }
 
 // clampWidth cuts rendered (possibly styled) text to at most w cells.
 func clampWidth(s string, w int) string {
 	return ansi.Truncate(s, max(w, 0), "…")
+}
+
+// padRight pads rendered text to w cells.
+func padRight(s string, w int) string {
+	if pad := w - ansi.StringWidth(s); pad > 0 {
+		return s + strings.Repeat(" ", pad)
+	}
+	return s
 }
 
 func joinNonEmpty(sep string, parts ...string) string {
@@ -101,39 +107,37 @@ func webURL(uri string) string {
 // friendly turns an error into a short message for the status line.
 func friendly(err error) string {
 	// Drop the "Get https://api.spotify.com/...:" prefix from transport errors.
-	var urlErr *url.Error
-	if errors.As(err, &urlErr) {
+	if urlErr, ok := errors.AsType[*url.Error](err); ok {
 		err = urlErr.Err
 	}
-	var apiErr *spotify.Error
 	switch {
 	case errors.Is(err, spotify.ErrNoActiveDevice):
 		return "No active device — press d to pick one"
 	case errors.Is(err, context.DeadlineExceeded):
 		return "Spotify took too long to respond"
-	case errors.As(err, &apiErr):
-		switch apiErr.Status {
-		case http.StatusTooManyRequests:
-			return fmt.Sprintf("Spotify is rate limiting sptui — retrying in %s", apiErr.RetryAfter.Round(time.Second))
-		case http.StatusUnauthorized:
-			return "Spotify session expired — run: sptui login"
-		case http.StatusForbidden:
-			if strings.Contains(strings.ToLower(apiErr.Message), "premium") {
-				return "Spotify Premium is required for playback control"
-			}
-			return "Spotify doesn't allow that: " + apiErr.Message
-		case http.StatusNotFound:
-			return "Not found on Spotify"
-		}
-		if apiErr.Message != "" {
-			return apiErr.Message
-		}
 	}
-	return err.Error()
+	apiErr, ok := errors.AsType[*spotify.Error](err)
+	if !ok {
+		return err.Error()
+	}
+	switch apiErr.Status {
+	case http.StatusTooManyRequests:
+		return fmt.Sprintf("Spotify is rate limiting sptui — retrying in %s", apiErr.RetryAfter.Round(time.Second))
+	case http.StatusUnauthorized:
+		return "Spotify session expired — run: sptui login"
+	case http.StatusForbidden:
+		if strings.Contains(strings.ToLower(apiErr.Message), "premium") {
+			return "Spotify Premium is required for playback control"
+		}
+		return "Spotify doesn't allow that: " + apiErr.Message
+	case http.StatusNotFound:
+		return "Not found on Spotify"
+	}
+	return cmp.Or(apiErr.Message, err.Error())
 }
 
 // isForbidden reports whether err is a Spotify 403.
 func isForbidden(err error) bool {
-	var apiErr *spotify.Error
-	return errors.As(err, &apiErr) && apiErr.Status == http.StatusForbidden
+	apiErr, ok := errors.AsType[*spotify.Error](err)
+	return ok && apiErr.Status == http.StatusForbidden
 }

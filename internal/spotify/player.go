@@ -2,6 +2,7 @@ package spotify
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 	"strconv"
 )
@@ -55,56 +56,56 @@ func (c *Client) Play(ctx context.Context, opts PlayOptions) error {
 	if len(body) > 0 {
 		payload = body
 	}
-	return c.do(ctx, "PUT", "/me/player/play", deviceQuery(opts.DeviceID), payload, nil)
+	return c.do(ctx, http.MethodPut, "/me/player/play", deviceQuery(opts.DeviceID), payload, nil)
 }
 
 // Pause pauses playback.
 func (c *Client) Pause(ctx context.Context) error {
-	return c.do(ctx, "PUT", "/me/player/pause", nil, nil, nil)
+	return c.do(ctx, http.MethodPut, "/me/player/pause", nil, nil, nil)
 }
 
 // Next skips to the next track.
 func (c *Client) Next(ctx context.Context) error {
-	return c.do(ctx, "POST", "/me/player/next", nil, nil, nil)
+	return c.do(ctx, http.MethodPost, "/me/player/next", nil, nil, nil)
 }
 
 // Previous skips to the previous track.
 func (c *Client) Previous(ctx context.Context) error {
-	return c.do(ctx, "POST", "/me/player/previous", nil, nil, nil)
+	return c.do(ctx, http.MethodPost, "/me/player/previous", nil, nil, nil)
 }
 
 // Seek jumps to a position in the current track.
 func (c *Client) Seek(ctx context.Context, positionMS int) error {
 	q := url.Values{"position_ms": {strconv.Itoa(max(0, positionMS))}}
-	return c.do(ctx, "PUT", "/me/player/seek", q, nil, nil)
+	return c.do(ctx, http.MethodPut, "/me/player/seek", q, nil, nil)
 }
 
 // SetVolume sets the volume of the active device (0-100).
 func (c *Client) SetVolume(ctx context.Context, percent int) error {
 	q := url.Values{"volume_percent": {strconv.Itoa(min(100, max(0, percent)))}}
-	return c.do(ctx, "PUT", "/me/player/volume", q, nil, nil)
+	return c.do(ctx, http.MethodPut, "/me/player/volume", q, nil, nil)
 }
 
 // SetShuffle turns shuffle on or off.
 func (c *Client) SetShuffle(ctx context.Context, on bool) error {
 	q := url.Values{"state": {strconv.FormatBool(on)}}
-	return c.do(ctx, "PUT", "/me/player/shuffle", q, nil, nil)
+	return c.do(ctx, http.MethodPut, "/me/player/shuffle", q, nil, nil)
 }
 
 // SetRepeat sets the repeat mode: RepeatOff, RepeatContext or RepeatTrack.
 func (c *Client) SetRepeat(ctx context.Context, mode string) error {
-	return c.do(ctx, "PUT", "/me/player/repeat", url.Values{"state": {mode}}, nil, nil)
+	return c.do(ctx, http.MethodPut, "/me/player/repeat", url.Values{"state": {mode}}, nil, nil)
 }
 
 // Transfer moves playback to another device.
 func (c *Client) Transfer(ctx context.Context, deviceID string, play bool) error {
 	body := map[string]any{"device_ids": []string{deviceID}, "play": play}
-	return c.do(ctx, "PUT", "/me/player", nil, body, nil)
+	return c.do(ctx, http.MethodPut, "/me/player", nil, body, nil)
 }
 
 // AddToQueue appends a track to the user's queue.
 func (c *Client) AddToQueue(ctx context.Context, uri string) error {
-	return c.do(ctx, "POST", "/me/player/queue", url.Values{"uri": {uri}}, nil, nil)
+	return c.do(ctx, http.MethodPost, "/me/player/queue", url.Values{"uri": {uri}}, nil, nil)
 }
 
 func deviceQuery(deviceID string) url.Values {

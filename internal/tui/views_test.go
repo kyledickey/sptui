@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"image"
 	"image/color"
 	"strings"
@@ -49,7 +48,7 @@ func TestHome(t *testing.T) {
 	// The tiles are walked with left and right, and open what they show.
 	first := p.cursor
 	d.press("right")
-	if p.cursor == first || !homeTile(p) {
+	if p.cursor == first || homeShelf(p) == nil {
 		t.Fatalf("right didn't move along the tiles (cursor %d)", p.cursor)
 	}
 	d.press("left")
@@ -209,11 +208,10 @@ func TestSwatch(t *testing.T) {
 		return img
 	}
 	red := swatchOf(solid(color.RGBA{200, 30, 30, 255}))
-	if red.average != "#c81e1e" || !strings.HasPrefix(red.vivid, "#") {
+	if red.average != "#c81e1e" {
 		t.Fatalf("red cover: %+v", red)
 	}
-	var r, g, b int
-	if _, err := fmtSscanf(red.vivid, &r, &g, &b); err != nil || r <= g || r <= b {
+	if r, g, b, ok := parseHex(red.vivid); !ok || r <= g || r <= b {
 		t.Fatalf("vivid colour of a red cover isn't red: %s", red.vivid)
 	}
 	if grey := swatchOf(solid(color.RGBA{120, 120, 120, 255})); grey.vivid != "" {
@@ -294,8 +292,4 @@ func TestPagesFit(t *testing.T) {
 			check("help")
 		}
 	}
-}
-
-func fmtSscanf(hex string, r, g, b *int) (int, error) {
-	return fmt.Sscanf(hex, "#%02x%02x%02x", r, g, b)
 }

@@ -110,11 +110,12 @@ func loadHome(ctx context.Context, b Backend, now time.Time) (chunk, error) {
 	seen := map[string]bool{}
 	for _, t := range recent {
 		var r row
-		if i := slices.IndexFunc(playlists.Items, func(pl spotify.Playlist) bool { return pl.URI == t.PlayedFrom }); i >= 0 {
+		switch i := slices.IndexFunc(playlists.Items, func(pl spotify.Playlist) bool { return pl.URI == t.PlayedFrom }); {
+		case i >= 0:
 			r = playlistRow(playlists.Items[i])
-		} else if t.Album.URI != "" {
+		case t.Album.URI != "":
 			r = albumRow(t.Album)
-		} else {
+		default:
 			continue
 		}
 		if !seen[r.uri()] && len(jump) < homeTiles {
@@ -204,20 +205,21 @@ func homeShelf(p *page) []int {
 	return nil
 }
 
-// homeTile reports whether the selected row is on a shelf.
-func homeTile(p *page) bool { return homeShelf(p) != nil }
-
 // homeKey moves around the home page: along a shelf with left and right,
 // and past a whole shelf with up and down. It reports whether it moved.
-func (m *Model) homeKey(msg string, up, down bool, p *page) bool {
+func homeKey(msg string, up, down bool, p *page) bool {
 	shelf := homeShelf(p)
 	if shelf == nil {
-		if up || down {
-			p.move(map[bool]int{true: -1, false: 1}[up])
-			m.landOnShelf(p, up)
-			return true
+		switch {
+		case up:
+			p.move(-1)
+			landOnShelf(p)
+		case down:
+			p.move(1)
+		default:
+			return false
 		}
-		return false
+		return true
 	}
 	i := slices.Index(shelf, p.cursor)
 	switch {
@@ -228,7 +230,7 @@ func (m *Model) homeKey(msg string, up, down bool, p *page) bool {
 	case up:
 		p.cursor = shelf[0]
 		p.move(-1)
-		m.landOnShelf(p, true)
+		landOnShelf(p)
 	case down:
 		p.cursor = shelf[len(shelf)-1]
 		p.move(1)
@@ -240,8 +242,8 @@ func (m *Model) homeKey(msg string, up, down bool, p *page) bool {
 
 // landOnShelf puts the cursor on the first tile when moving up onto a
 // shelf, instead of its last.
-func (m *Model) landOnShelf(p *page, up bool) {
-	if shelf := homeShelf(p); shelf != nil && up {
+func landOnShelf(p *page) {
+	if shelf := homeShelf(p); shelf != nil {
 		p.cursor = shelf[0]
 	}
 }

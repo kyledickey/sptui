@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
 	"github.com/kyledickey/sptui/internal/spotify"
 )
 
@@ -188,15 +189,25 @@ func (m *Model) play(opts spotify.PlayOptions, fallback []string) tea.Cmd {
 	m.log.Debug("play", "context", opts.ContextURI, "uris", len(opts.URIs), "offset", opts.OffsetURI)
 	local := m.wantLocal()
 	return m.act("play", "", func(ctx context.Context) error {
-		if local {
-			dev, err := m.localDevice(ctx)
-			if err != nil {
-				return err
-			}
-			opts.DeviceID = dev.ID
+		if err := m.playHere(ctx, local, &opts); err != nil {
+			return err
 		}
 		return m.startPlayback(ctx, opts, fallback)
 	})
+}
+
+// playHere points opts at sptui's own speaker when local is set (see
+// wantLocal), waiting for the speaker if it's still connecting.
+func (m *Model) playHere(ctx context.Context, local bool, opts *spotify.PlayOptions) error {
+	if !local {
+		return nil
+	}
+	dev, err := m.localDevice(ctx)
+	if err != nil {
+		return err
+	}
+	opts.DeviceID = dev.ID
+	return nil
 }
 
 // wantLocal reports whether playback should move to sptui's own speaker: it
@@ -245,8 +256,7 @@ func (m *Model) startPlayback(ctx context.Context, opts spotify.PlayOptions, fal
 		opts.DeviceID = dev.ID
 		err = m.backend.Play(ctx, opts)
 	}
-	var apiErr *spotify.Error
-	if opts.ContextURI != "" && len(fallback) > 0 && errors.As(err, &apiErr) && apiErr.Status < 500 {
+	if apiErr, ok := errors.AsType[*spotify.Error](err); ok && apiErr.Status < 500 && opts.ContextURI != "" && len(fallback) > 0 {
 		m.log.Info("context playback failed, playing tracks instead", "context", opts.ContextURI, "err", err)
 		opts.OffsetIndex = max(0, slices.Index(fallback, opts.OffsetURI))
 		opts.URIs, opts.ContextURI, opts.OffsetURI = fallback, "", ""
