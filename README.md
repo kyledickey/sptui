@@ -105,18 +105,24 @@ Works on Linux desktops (KDE, GNOME and others, over D-Bus) and macOS.
 ### Home
 
 sptui opens on **Home**: a greeting and a sparkline of your week's
-listening, covers of what you played recently to **jump back in** to (walk
-them with `←` `→`), the songs you've had **on repeat**, and **new episodes**
-of podcasts you follow. It's built from Recently Played, so it costs only a
-few (cached) requests.
+listening, then shelves of covers and lists of things the sidebar doesn't
+show: what you played recently to **jump back in** to, the songs you've had
+**on repeat**, **new episodes** of podcasts you follow, **new releases from
+artists you follow**, saved albums to **rediscover** (ones you haven't
+played lately, a different handful each day), and the **artists you
+follow**. `←` `→` walk along a shelf, `↑` `↓` move between them. It's built
+from Recently Played and your library, so it costs a handful of (cached)
+requests.
 
 ### Pages
 
 Albums, playlists, artists and podcasts open with their cover, the numbers
 (songs and running time, new episodes) and buttons to play (`P`) or shuffle
-(`S`) the whole thing. Album pages draw each song's length as a bar, artist
-pages spell the artist's name in big letters over a timeline of their
-releases, playlists get a strip made of every song's cover colour (with a
+(`S`) the whole thing. Album pages draw each song's length as a bar. Artist
+pages are a poster: their photo, their name in big letters, genres,
+followers, how much you play them and their latest release, over a wall of
+their releases' covers to walk with the arrow keys (`1`–`3` for all, albums
+or singles). playlists get a strip made of every song's cover colour (with a
 marker under the one playing), and podcast episodes show how far you got.
 Search results have tabs, `1`–`6`, for all, songs, artists, albums,
 playlists and podcasts, and a card for the top result.

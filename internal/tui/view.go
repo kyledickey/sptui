@@ -43,8 +43,11 @@ func (m *Model) headerHeight(p *page) int {
 		return m.searchHeaderLines(p, m.contentWidth())
 	}
 	n := pageHeader
-	if rows := m.pageCoverRows(); p.cover != "" && rows > 0 {
-		n = rows + 2
+	if hero, _ := m.hasHero(p); hero {
+		n = m.heroRows(p) + 2
+	}
+	if p.grid {
+		n++ // a gap between the tabs and the covers
 	}
 	if p.strip {
 		n++
@@ -274,6 +277,13 @@ func (m *Model) viewMain() string {
 		return style.Width(w).Height(h).Render(strings.Join(lines, "\n"))
 	}
 	lines := m.pageHeader(p, cw)
+	if p.grid {
+		lines = append(lines, m.viewGrid(p, cw, focused)...)
+		for i := range lines {
+			lines[i] = clampWidth(lines[i], cw)
+		}
+		return style.Width(w).Height(h).Render(strings.Join(lines[:min(len(lines), h-2)], "\n"))
+	}
 	if p.settings {
 		lines = append(append(lines[:2], ""), m.viewSettings(p, cw, h-2-3)...)
 		for i := range lines {
@@ -349,18 +359,25 @@ func (m *Model) pageHeader(p *page, cw int) []string {
 	if p.isSearch {
 		return m.viewSearchHeader(p, cw, right)
 	}
-	if p.self != nil && p.cover != "" && m.pageCoverRows() > 0 && !p.loading && p.filter == "" {
+	hero, cover := m.hasHero(p)
+	if p.self != nil && hero && !p.loading && p.filter == "" {
 		// The hero counts songs itself; keep only the cache age.
 		right = m.cacheMarker(p.origin)
 	}
 
+	if p.grid {
+		colHeader = m.st.colHead.Render("RELEASES   ") + m.tabsLine(p, cw-11)
+	}
 	var lines []string
-	if rows := m.pageCoverRows(); p.cover == "" || rows == 0 {
+	switch rows := m.heroRows(p); {
+	case !hero:
 		lines = []string{
 			spread(m.st.title.Render(clampWidth(p.title, cw-lipgloss.Width(right)-2)), right, cw),
 			m.st.subtitle.Render(clampWidth(p.subtitle, cw)),
 		}
-	} else {
+	case !cover:
+		lines = m.heroText(p, cw, rows, right)
+	default:
 		// Cover on the left, text bottom-aligned beside it like a record sleeve.
 		cols := m.coverCols(rows)
 		cover := strings.Split(m.coverView(p.cover, cols, rows), "\n")
@@ -375,7 +392,11 @@ func (m *Model) pageHeader(p *page, cw int) []string {
 	} else {
 		lines = append(lines, "")
 	}
-	return append(lines, colHeader)
+	lines = append(lines, colHeader)
+	if p.grid {
+		lines = append(lines, "")
+	}
+	return lines
 }
 
 // cacheMarker is a small note that data came from sptui's cache: how old it
@@ -462,9 +483,6 @@ func (m *Model) columnHeader(p *page, w int) string {
 			names = []string{"TITLE", "LENGTH"}
 		}
 	case kindAlbum:
-		if p.timeline {
-			return m.st.colHead.Render(clampWidth("  YEAR    RELEASE", w))
-		}
 		names, tailName = []string{"ALBUM", "ARTIST"}, "YEAR"
 	case kindPlaylist:
 		names, tailName = []string{"PLAYLIST", "OWNER"}, "SONGS"
@@ -549,15 +567,6 @@ func (m *Model) renderRow(p *page, i, w int, focused bool) string {
 		lead = "  ◎ "
 		cells = []string{a.Name, spotify.JoinArtists(a.Artists)}
 		tailText = a.Year()
-		if p.timeline {
-			lead = m.timelineLead(p, i, bg)
-			flex[0] -= lipgloss.Width(lead) - 4
-			cells[1] = joinNonEmpty(" · ", a.AlbumType, songCount(a.TotalTracks))
-			tailText = ""
-			if released(a.ReleaseDate) {
-				styled[-1] = bg(m.st.on.Bold(true)).Render(fmt.Sprintf("%*s", tail, "NEW"))
-			}
-		}
 	case kindArtist:
 		lead = "  ♪ "
 		cells = []string{r.artist.Name, strings.Join(r.artist.Genres, ", ")}
@@ -577,11 +586,7 @@ func (m *Model) renderRow(p *page, i, w int, focused bool) string {
 
 	var b strings.Builder
 	b.WriteString(bg(m.st.cursorBar).Render(bar))
-	if p.timeline && r.kind == kindAlbum {
-		b.WriteString(lead) // already styled
-	} else {
-		b.WriteString(leadStyle.Render(lead))
-	}
+	b.WriteString(leadStyle.Render(lead))
 	for ci, width := range flex {
 		st := secondary
 		if ci == 0 {
@@ -654,48 +659,10 @@ func (m *Model) lengthBar(p *page, t spotify.Track, w int, playing bool, bg func
 	return bg(st).Render(strings.Repeat("▬", n)) + bg(lipgloss.NewStyle()).Render(strings.Repeat(" ", max(0, w-n)))
 }
 
-// timelineLead is the year, branch and dot before a release on an
-// artist's timeline, styled.
-func (m *Model) timelineLead(p *page, i int, bg func(lipgloss.Style) lipgloss.Style) string {
-	a := p.rows[p.visible[i]].album
-	year := a.Year()
-	if i > 0 && p.rows[p.visible[i-1]].album.Year() == year {
-		year = ""
-	}
-	last := i == len(p.visible)-1 && p.next < 0
-	branch := "├"
-	switch {
-	case i == 0 && last:
-		branch = "─"
-	case i == 0:
-		branch = "┬"
-	case last:
-		branch = "└"
-	}
-	dot, dotStyle := "●", m.st.row
-	switch {
-	case released(a.ReleaseDate):
-		dot, dotStyle = "◉", m.st.on
-	case a.AlbumType == "single":
-		dot = "○"
-	case a.AlbumType == "compilation":
-		dot = "◌"
-	}
-	return bg(m.st.subtitle).Render(fmt.Sprintf("%-4s ", year)) + bg(m.st.off).Render(branch+"─") +
-		bg(dotStyle).Render(dot) + bg(lipgloss.NewStyle()).Render(" ")
-}
-
 // released reports whether a release date is within the last few months.
 func released(date string) bool {
 	d, err := time.Parse(time.DateOnly, date)
 	return err == nil && time.Since(d) < 120*24*time.Hour
-}
-
-func songCount(n int) string {
-	if n == 0 {
-		return ""
-	}
-	return plural(n, "song")
 }
 
 // shortDate is "Sep 17", with the year when it isn't this one.

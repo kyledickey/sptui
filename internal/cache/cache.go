@@ -201,6 +201,12 @@ func (c *Library) AlbumTracks(ctx context.Context, album spotify.Album, offset i
 	})
 }
 
+func (c *Library) Artist(ctx context.Context, id string) (spotify.Artist, error) {
+	return get(ctx, c, settled, "artist-info", []any{id}, func() (spotify.Artist, error) {
+		return c.Library.Artist(ctx, id)
+	})
+}
+
 func (c *Library) ArtistAlbums(ctx context.Context, id string, offset int) (spotify.Page[spotify.Album], error) {
 	return get(ctx, c, settled, "artist", []any{id, offset}, func() (spotify.Page[spotify.Album], error) {
 		return c.Library.ArtistAlbums(ctx, id, offset)

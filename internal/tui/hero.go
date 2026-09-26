@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -20,6 +21,13 @@ import (
 type searchTab struct {
 	label string
 	shows func(row) bool
+}
+
+// artistTabs split an artist's releases.
+var artistTabs = []searchTab{
+	{"all", func(r row) bool { return r.kind == kindAlbum }},
+	{"albums", func(r row) bool { return r.kind == kindAlbum && r.album.AlbumType != "single" }},
+	{"singles", func(r row) bool { return r.kind == kindAlbum && r.album.AlbumType == "single" }},
 }
 
 var searchTabs = []searchTab{
@@ -124,7 +132,7 @@ func (m *Model) viewSearchHeader(p *page, cw int, right string) []string {
 			lines = append(lines, strings.Join(parts, " "))
 		}
 	} else {
-		lines = append(lines, m.searchTabsLine(p, cw))
+		lines = append(lines, m.tabsLine(p, cw))
 	}
 	lines = append(lines, "")
 	if m.showCard(p) {
@@ -134,17 +142,17 @@ func (m *Model) viewSearchHeader(p *page, cw int, right string) []string {
 	return lines
 }
 
-// searchTabsLine is the tabs on one line, for narrow panes: squeezed, and
-// abbreviated if need be.
-func (m *Model) searchTabsLine(p *page, cw int) string {
+// tabsLine is a page's tabs on one line: squeezed, and search's
+// abbreviated, if need be.
+func (m *Model) tabsLine(p *page, cw int) string {
 	short := []string{"all", "songs", "artists", "albums", "lists", "pods"}
 	var line string
 	for _, abbreviate := range []bool{false, true} {
 		for _, gap := range []string{"   ", "  "} {
 			var parts []string
-			for i, t := range searchTabs {
+			for i, t := range p.tabs {
 				label := t.label
-				if abbreviate {
+				if abbreviate && len(p.tabs) == len(short) {
 					label = short[i]
 				}
 				text := m.st.key.Render(fmt.Sprint(i+1)) + " " + m.st.keyDesc.Render(label)
@@ -225,16 +233,7 @@ func (m *Model) heroText(p *page, w, n int, right string) []string {
 	case p.self == nil:
 		lines = []string{title(), m.st.subtitle.Render(clampWidth(p.subtitle, w)), about}
 	case p.self.kind == kindArtist:
-		ar := p.self.artist
-		if big, ok := banner(ar.Name); ok && n >= 7 && lipgloss.Width(big[0]) <= w-lipgloss.Width(right)-2 {
-			lines = []string{spread(m.st.on.Render(big[0]), right, w), m.st.on.Render(big[1])}
-		} else {
-			lines = []string{m.st.colHead.Render("ARTIST"), title()}
-		}
-		lines = append(lines, clampWidth(m.chips(ar.Genres), w))
-		if ar.Followers != nil {
-			lines = append(lines, m.st.subtitle.Render(followers(ar.Followers.Total)))
-		}
+		return m.artistHero(p, w, n, right)
 	default:
 		lines = []string{
 			m.st.colHead.Render(clampWidth(p.kicker, w)),
@@ -251,6 +250,65 @@ func (m *Model) heroText(p *page, w, n int, right string) []string {
 	for len(lines) > n {
 		lines = lines[1:] // the kicker goes first
 	}
+	for len(lines) < n {
+		lines = append([]string{""}, lines...)
+	}
+	return lines
+}
+
+// artistHero is an artist's poster text, n lines: their name big, then
+// genres, numbers and their latest release, spaced out, over the buttons.
+// When it doesn't all fit, spacing goes first, then the latest release,
+// then the genres, then the buttons.
+func (m *Model) artistHero(p *page, w, n int, right string) []string {
+	ar := p.self.artist
+	type part struct {
+		lines []string
+		drop  int // order to drop in when short of room; 0 never
+	}
+	var name []string
+	if big, ok := banner(ar.Name); ok && n >= 7 && lipgloss.Width(big[0]) <= w-lipgloss.Width(right)-2 {
+		name = []string{spread(m.st.on.Render(big[0]), right, w), m.st.on.Render(big[1])}
+	} else {
+		name = []string{m.st.colHead.Render("ARTIST"),
+			spread(m.st.title.Render(clampWidth(p.title, w-lipgloss.Width(right)-2)), right, w)}
+	}
+	var stats []string
+	if ar.Followers != nil {
+		stats = append(stats, followers(ar.Followers.Total))
+	}
+	if p.plays > 0 {
+		stats = append(stats, fmt.Sprintf("%d of your last 50 plays", p.plays))
+	}
+	gap := part{[]string{""}, 1}
+	parts := []part{{name, 0}, gap}
+	if len(ar.Genres) > 0 {
+		parts = append(parts, part{[]string{clampWidth(m.chips(ar.Genres), w)}, 3})
+	}
+	if len(stats) > 0 {
+		parts = append(parts, part{[]string{m.st.subtitle.Render(clampWidth(strings.Join(stats, " · "), w))}, 0})
+	}
+	if latest, ok := m.latestRelease(p); ok {
+		parts = append(parts, part{[]string{clampWidth(latest, w)}, 2})
+	}
+	buttons := m.heroButtons()
+	parts = append(parts, gap, part{buttons[:], 4})
+
+	count := func() int {
+		total := 0
+		for _, pt := range parts {
+			total += len(pt.lines)
+		}
+		return total
+	}
+	for drop := 1; count() > n && drop <= 4; drop++ {
+		parts = slices.DeleteFunc(parts, func(pt part) bool { return pt.drop == drop })
+	}
+	var lines []string
+	for _, pt := range parts {
+		lines = append(lines, pt.lines...)
+	}
+	lines = lines[max(0, len(lines)-n):]
 	for len(lines) < n {
 		lines = append([]string{""}, lines...)
 	}
@@ -390,4 +448,26 @@ func runningTime(d time.Duration) string {
 		return fmt.Sprintf("%d min", mins)
 	}
 	return fmt.Sprintf("%d h %d min", mins/60, mins%60)
+}
+
+// latestRelease is a callout for an artist's newest release: "◉ LATEST
+// Crystal Gardens · Sep 2025", marked NEW when it's recent.
+func (m *Model) latestRelease(p *page) (string, bool) {
+	for _, r := range p.rows { // newest first
+		if r.kind != kindAlbum {
+			continue
+		}
+		a := r.album
+		when := a.Year()
+		if d, err := time.Parse(time.DateOnly, a.ReleaseDate); err == nil {
+			when = d.Format("Jan 2006")
+		}
+		line := m.st.on.Render("◉ LATEST  ") + m.st.row.Bold(true).Render(a.Name) +
+			m.st.subtitle.Render(" · "+joinNonEmpty(" · ", a.AlbumType, when))
+		if released(a.ReleaseDate) {
+			line += m.st.on.Bold(true).Render("  NEW")
+		}
+		return line, true
+	}
+	return "", false
 }

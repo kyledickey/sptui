@@ -107,21 +107,81 @@ func TestSearchTabs(t *testing.T) {
 	}
 }
 
-func TestArtistTimeline(t *testing.T) {
+func TestArtistPage(t *testing.T) {
 	d := newDriver(t, 120, 40)
 	d.open("Artists")
 	d.press("enter")
 	p := d.page()
-	if !p.timeline || len(p.rows) < 2 {
-		t.Fatalf("artist page: timeline %v, %d rows", p.timeline, len(p.rows))
+	if !p.grid || len(p.rows) < 2 || p.plays < 0 {
+		t.Fatalf("artist page: grid %v, %d rows, plays %d", p.grid, len(p.rows), p.plays)
 	}
 	for i := 1; i < len(p.rows); i++ {
 		if p.rows[i].album.ReleaseDate > p.rows[i-1].album.ReleaseDate {
 			t.Fatal("releases aren't newest first")
 		}
 	}
-	if !strings.Contains(ansi.Strip(d.m.View().Content), "┬─") {
-		t.Error("no timeline drawn")
+	view := ansi.Strip(d.m.View().Content)
+	for _, want := range []string{"◉ LATEST", "RELEASES", "followers", "▶ play"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("artist page lacks %q", want)
+		}
+	}
+
+	// Arrows walk the grid: right along a row, down a row at a time.
+	d.press("right")
+	if p.cursor != 1 {
+		t.Fatalf("right: cursor %d", p.cursor)
+	}
+	if cols := d.m.gridCols(); len(p.visible) > cols {
+		d.press("left", "down")
+		if p.cursor != cols {
+			t.Fatalf("down: cursor %d, want %d", p.cursor, cols)
+		}
+		d.press("up")
+	}
+
+	// Tabs split albums from singles.
+	d.press("3")
+	for _, i := range p.visible {
+		if p.rows[i].album.AlbumType != "single" {
+			t.Fatalf("singles tab shows a %s", p.rows[i].album.AlbumType)
+		}
+	}
+	d.press("1")
+	want, _ := p.selected()
+	d.press("enter")
+	if d.page().title != want.name() {
+		t.Fatalf("enter opened %q, want %q", d.page().title, want.name())
+	}
+}
+
+func TestHomeShelves(t *testing.T) {
+	d := newHomeDriver(t, 120, 50, withArt(art.Off))
+	p := d.page()
+	sections := homeSections(p)
+	for _, s := range []string{homeNew, homeRediscover, homeArtists} {
+		if len(sections[s]) == 0 {
+			t.Errorf("home has no %q shelf", s)
+		}
+	}
+	// Down from the last episode goes on to the new releases list.
+	p.cursor = sections[homeEpisodes][len(sections[homeEpisodes])-1]
+	d.press("down")
+	if p.cursor != sections[homeNew][0] {
+		t.Fatalf("down from the episodes: cursor %d, want %d", p.cursor, sections[homeNew][0])
+	}
+	// The artists are a row walked sideways, and up leaves it.
+	p.cursor = sections[homeArtists][0]
+	d.press("right")
+	if p.cursor != sections[homeArtists][1] {
+		t.Fatalf("right along the artists: cursor %d", p.cursor)
+	}
+	if view := ansi.Strip(d.m.View().Content); !strings.Contains(view, "ARTISTS YOU FOLLOW") {
+		t.Fatal("the artists row didn't scroll into view")
+	}
+	d.press("up")
+	if last := sections[homeRediscover]; p.cursor != last[len(last)-1] {
+		t.Fatalf("up from the artists: cursor %d, want the end of rediscover", p.cursor)
 	}
 }
 

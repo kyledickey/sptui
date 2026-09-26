@@ -258,6 +258,19 @@ func (b *Backend) SavedAlbums(ctx context.Context, offset int) (spotify.Page[spo
 	return page(filter(b.albums, func(a spotify.Album) bool { return b.library[a.URI] }), offset), nil
 }
 
+func (b *Backend) Artist(ctx context.Context, id string) (spotify.Artist, error) {
+	if err := b.wait(ctx); err != nil {
+		return spotify.Artist{}, err
+	}
+	defer b.mu.Unlock()
+	for _, a := range b.artists {
+		if a.ID == id {
+			return a, nil
+		}
+	}
+	return spotify.Artist{}, &spotify.Error{Status: http.StatusNotFound, Message: "artist not found"}
+}
+
 func (b *Backend) FollowedArtists(ctx context.Context) ([]spotify.Artist, error) {
 	if err := b.wait(ctx); err != nil {
 		return nil, err

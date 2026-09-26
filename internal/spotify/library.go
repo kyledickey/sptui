@@ -155,6 +155,14 @@ func fillAlbum(tracks []Track, album Album) {
 	}
 }
 
+// Artist returns an artist in full: photo, genres and followers, which the
+// artists on tracks and albums leave out.
+func (c *Client) Artist(ctx context.Context, id string) (Artist, error) {
+	var a Artist
+	err := c.get(ctx, "/artists/"+id, nil, &a)
+	return a, err
+}
+
 // ArtistAlbums returns a page of an artist's albums and singles.
 func (c *Client) ArtistAlbums(ctx context.Context, artistID string, offset int) (Page[Album], error) {
 	var page Page[*Album]

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/kyledickey/sptui/internal/spotify"
@@ -125,14 +126,35 @@ func albumPage(b Backend, al spotify.Album) *page {
 func artistPage(b Backend, ar spotify.Artist) *page {
 	p := newPage(ar.Name, kindAlbum, func(ctx context.Context, off int) (chunk, error) {
 		pg, err := b.ArtistAlbums(ctx, ar.ID, off)
-		return fromPage(pg, err, albumRow)
+		c, err := fromPage(pg, err, albumRow)
+		if err == nil && off == 0 && (len(ar.Images) == 0 || ar.Followers == nil) {
+			// Opened from a song or album, which only name their artists.
+			if full, err := b.Artist(ctx, ar.ID); err == nil {
+				c.artist = &full
+			}
+		}
+		if err == nil && off == 0 {
+			// How much the user plays them, from what's already cached.
+			if recent, err := b.RecentlyPlayed(ctx); err == nil {
+				n := 0
+				for _, t := range recent {
+					if slices.ContainsFunc(t.Artists, func(a spotify.Artist) bool { return a.ID == ar.ID }) {
+						n++
+					}
+				}
+				c.artistPlays = &n
+			}
+		}
+		return c, err
 	})
 	p.context = ar.URI
 	p.self = ptr(artistRow(ar))
 	p.cover = spotify.CoverURL(ar.Images, coverSource)
 	p.about = strings.Join(ar.Genres, ", ")
 	p.subtitle = "Artist · albums and singles"
-	p.timeline = true
+	p.grid = true
+	p.tabs = artistTabs
+	p.empty = "No releases here."
 	return p
 }
 
@@ -156,6 +178,7 @@ func showPage(b Backend, sh spotify.Show) *page {
 func searchPage() *page {
 	p := newPage("Search", kindHeader, nil)
 	p.isSearch = true
+	p.tabs = searchTabs
 	p.next = -1
 	p.empty = "Type to search songs, artists, albums, playlists and podcasts."
 	return p

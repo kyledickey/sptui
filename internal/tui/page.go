@@ -102,10 +102,12 @@ func (r row) matches(filter string) bool {
 // chunk is one batch of rows from a loader. next is the offset to request
 // the following batch from, or -1 when everything is loaded.
 type chunk struct {
-	rows     []row
-	next     int
-	total    int
-	homeData *homeData // the home page's extras
+	rows        []row
+	next        int
+	total       int
+	homeData    *homeData       // the home page's extras
+	artistPlays *int            // an artist page's: plays of them among recent plays
+	artist      *spotify.Artist // and the artist in full, when the page only had a name
 }
 
 // loadFunc fetches rows starting at offset.
@@ -157,11 +159,13 @@ type page struct {
 	episodes   bool   // rows are podcast episodes: label columns for them
 	kicker     string // a small heading over the title, e.g. "ALBUM · 2016"
 	lengths    bool   // draw each song's length as a bar (album pages)
-	timeline   bool   // releases newest first on a timeline (artist pages)
+	grid       bool   // tiles in a grid, newest first (an artist's releases)
 	strip      bool   // a strip of every song's cover colour (playlists)
 	home       bool   // the home page
 	homeData   *homeData
-	tab        int // search: which kind of result to show, 0 for all
+	tabs       []searchTab // kinds of row to show, picked with 1-9
+	tab        int         // which of tabs is showing; 0 shows all
+	plays      int         // artist pages: plays among recent plays, -1 if unknown
 	isSearch   bool
 	query      string
 	live       bool           // reload when the playing track changes (the queue)
@@ -172,7 +176,7 @@ type page struct {
 }
 
 func newPage(title string, kind rowKind, load loadFunc) *page {
-	return &page{title: title, kind: kind, load: load}
+	return &page{title: title, kind: kind, load: load, plays: -1}
 }
 
 // append adds a loaded chunk.
@@ -180,8 +184,16 @@ func (p *page) append(c chunk) {
 	if c.homeData != nil {
 		p.homeData = c.homeData
 	}
+	if c.artistPlays != nil {
+		p.plays = *c.artistPlays
+	}
+	if a := c.artist; a != nil && p.self != nil {
+		p.self.artist = *a
+		p.cover = spotify.CoverURL(a.Images, coverSource)
+		p.about = strings.Join(a.Genres, ", ")
+	}
 	p.rows = append(p.rows, c.rows...)
-	if p.timeline {
+	if p.grid {
 		// Newest first. Spotify lists albums, then singles, a page at a time.
 		slices.SortStableFunc(p.rows, func(a, b row) int { return strings.Compare(b.album.ReleaseDate, a.album.ReleaseDate) })
 	}
@@ -234,7 +246,7 @@ func (p *page) setFilter(f string) {
 func (p *page) refilter() {
 	p.visible = p.visible[:0]
 	for i, r := range p.rows {
-		if (p.filter == "" || r.matches(p.filter)) && (p.tab == 0 || searchTabs[p.tab].shows(r)) {
+		if (p.filter == "" || r.matches(p.filter)) && (p.tab == 0 || p.tabs[p.tab].shows(r)) {
 			p.visible = append(p.visible, i)
 		}
 	}

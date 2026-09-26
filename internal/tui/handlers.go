@@ -3,7 +3,6 @@ package tui
 import (
 	"context"
 	"math/rand/v2"
-	"slices"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -37,8 +36,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.togglePanel(rune(s[0]))
 		}
 	}
-	if p := m.current(); p != nil && p.isSearch && m.focus == focusMain {
-		if s := msg.String(); len(s) == 1 && s[0] >= '1' && int(s[0]-'1') < len(searchTabs) {
+	if p := m.current(); p != nil && len(p.tabs) > 0 && m.focus == focusMain {
+		if s := msg.String(); len(s) == 1 && s[0] >= '1' && int(s[0]-'1') < len(p.tabs) {
 			p.setTab(int(s[0] - '1'))
 			return nil
 		}
@@ -158,17 +157,12 @@ func (m *Model) sidebarKey(msg tea.KeyPressMsg) tea.Cmd {
 
 func (m *Model) listKey(msg tea.KeyPressMsg, p *page) tea.Cmd {
 	k := m.keys
-	if p.home && homeTile(p) {
-		// The tiles are a row: left and right walk along it.
-		tiles := homeSections(p)[homeJump]
-		switch i := slices.Index(tiles, p.cursor); {
-		case msg.String() == "right" && i < len(tiles)-1:
-			p.cursor = tiles[i+1]
-			return nil
-		case msg.String() == "left" && i > 0:
-			p.cursor = tiles[i-1]
-			return nil
-		}
+	up, down := key.Matches(msg, k.Up), key.Matches(msg, k.Down)
+	if p.home && m.homeKey(msg.String(), up, down, p) {
+		return nil
+	}
+	if p.grid && m.gridKey(msg.String(), up, down, p) {
+		return m.loadMore(p)
 	}
 	switch {
 	case key.Matches(msg, k.Up):

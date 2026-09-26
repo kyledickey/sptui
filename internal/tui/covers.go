@@ -126,7 +126,7 @@ func (m *Model) wantedCovers() []coverKey {
 	}
 	p := m.current()
 	if p != nil && p.cover != "" {
-		if rows := m.pageCoverRows(); rows > 0 {
+		if rows := m.heroRows(p); rows > 0 {
 			want = append(want, coverKey{p.cover, m.coverCols(rows), rows})
 		}
 	}
@@ -135,6 +135,13 @@ func (m *Model) wantedCovers() []coverKey {
 			if url := tileCover(p.rows[p.visible[vi]]); url != "" {
 				rows := m.homeTileRows()
 				want = append(want, coverKey{url, m.coverCols(rows), rows})
+			}
+		}
+	}
+	if p != nil && p.grid {
+		for _, vi := range m.gridShown(p) {
+			if url := tileCover(p.rows[p.visible[vi]]); url != "" {
+				want = append(want, coverKey{url, m.coverCols(gridTileRows), gridTileRows})
 			}
 		}
 	}
