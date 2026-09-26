@@ -12,7 +12,7 @@ import (
 
 const (
 	boomboxW = 42 // scene size, in cells
-	boomboxH = 14
+	boomboxH = 16
 
 	// Timeline, in milliseconds from the start.
 	boomboxLand = 380  // feet touch the floor
@@ -26,12 +26,12 @@ const (
 	// Layout, in pixels (two per cell, stacked).
 	boomboxX     = 5  // left edge of the body, in cells
 	boomboxBodyW = 32 // body size
-	boomboxBodyH = 14
+	boomboxBodyH = 16
 	boomboxRest  = 10 // top of the body when it sits on the floor; even, so the window lines up with cells
 	boomboxWinX  = 10 // cassette window, from the body's left edge, in cells
 	boomboxWinW  = 12
 	boomboxWinY  = 4 // from the body's top, in pixels
-	boomboxHello = 13
+	boomboxHello = 15
 
 	// Neutral darks for the chassis, so the theme colours do the talking.
 	boomboxChassis = "#2b2e35"
@@ -164,16 +164,16 @@ func (p *Play) boomboxScene(t float64) *canvas {
 	}
 
 	// Cassette window: a hole in the body with the tape's frame around it,
-	// and SPTUI scrolling past inside.
+	// a pixel of room above and below, and SPTUI scrolling past inside.
 	wx, wy := bx+boomboxWinX, by+boomboxWinY
 	for x := wx - 1; x <= wx+boomboxWinW; x++ {
-		for y := wy - 1; y <= wy+4; y++ {
+		for y := wy - 2; y <= wy+5; y++ {
 			c.pixel(x, y, "")
 		}
-		c.pixel(x, wy-1, dark)
-		c.pixel(x, wy+4, dark)
+		c.pixel(x, wy-2, dark)
+		c.pixel(x, wy+5, dark)
 	}
-	for y := wy - 1; y <= wy+4; y++ {
+	for y := wy - 2; y <= wy+5; y++ {
 		c.pixel(wx-1, y, dark)
 		c.pixel(wx+boomboxWinW, y, dark)
 	}
@@ -203,7 +203,7 @@ func (p *Play) boomboxScene(t float64) *canvas {
 		if playing && float64(i) < pump*float64(boomboxWinW)*0.95+1 {
 			col = mixHex(accent, purple, float64(i)/float64(boomboxWinW-1))
 		}
-		c.pixel(wx+i, wy+6, col)
+		c.pixel(wx+i, wy+7, col)
 	}
 
 	// Pressure rings roll off each side on every beat and fade out.

@@ -61,31 +61,31 @@ func (p *Play) vinylScene(t float64) *canvas {
 	mat := mixHex(faint, bg, 0.35)
 
 	// The deck: a chunky slab with a darker front edge and little feet.
-	for y := 4; y <= 23; y++ {
+	for y := 4; y <= 21; y++ {
 		for x := 1; x <= 36; x++ {
-			corner := (x == 1 || x == 36) && (y == 4 || y == 23)
+			corner := (x == 1 || x == 36) && (y == 4 || y == 21)
 			if !corner {
-				c.pixel(x, y, pick(y >= 22, front, deck))
+				c.pixel(x, y, pick(y >= 20, front, deck))
 			}
 		}
 	}
 	for _, x := range []int{3, 4, 5, 32, 33, 34} {
-		c.pixel(x, 24, front)
+		c.pixel(x, 22, front)
 	}
 
 	// Speed buttons and a power light, which comes on with the motor.
 	spinning := t >= vinylSpin
-	c.pixel(3, 20, pick(spinning, accent, muted))
-	c.pixel(4, 20, pick(spinning, accent, muted))
-	c.pixel(6, 20, muted)
-	c.pixel(7, 20, muted)
-	c.pixel(34, 20, pick(spinning, accent, faint))
+	c.pixel(3, 18, pick(spinning, accent, muted))
+	c.pixel(4, 18, pick(spinning, accent, muted))
+	c.pixel(6, 18, muted)
+	c.pixel(7, 18, muted)
+	c.pixel(34, 18, pick(spinning, accent, faint))
 
 	// Pitch slider down the right edge.
-	for y := 11; y <= 17; y++ {
+	for y := 10; y <= 16; y++ {
 		c.pixel(35, y, front)
 	}
-	c.pixel(35, 14, muted)
+	c.pixel(35, 13, muted)
 
 	theta := vinylAngle(t)
 
@@ -171,8 +171,8 @@ func (p *Play) vinylScene(t float64) *canvas {
 	dx, dy := math.Cos(a), math.Sin(a)
 	tipX, tipY := vinylPivotX+dx*vinylArmLen, vinylPivotY+dy*vinylArmLen
 	lift := pick(t < vinylDrop, 1.0, 0)
-	c.pixel(31, 19, front) // the arm rest
-	c.pixel(31, 18, front)
+	c.pixel(31, 18, front) // the arm rest
+	c.pixel(31, 17, front)
 	for s := 0.0; s <= vinylArmLen; s += 0.5 {
 		l := lift * s / vinylArmLen // it tilts up towards the head
 		c.pixel(int(math.Round(vinylPivotX+dx*s)), int(math.Round(vinylPivotY+dy*s-l)), text)

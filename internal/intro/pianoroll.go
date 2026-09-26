@@ -31,9 +31,9 @@ const (
 	pianoStride = 5  // cells from one white key to the next
 	pianoWhites = 9  // C4 to D5
 	pianoTop    = 14 // D5, in semitones above C4
-	pianoHead   = 22 // pixel row of the playhead, the felt above the keys
-	pianoWhiteB = 29 // bottom pixel row of the white keys
-	pianoBlackB = 26 // and of the black ones
+	pianoHead   = 20 // pixel row of the playhead, the felt above the keys
+	pianoWhiteB = 27 // bottom pixel row of the white keys
+	pianoBlackB = 24 // and of the black ones
 	pianoHello  = 15 // row of the greeting
 
 	pianoPx     = 6.0                   // pixels per eighth on the roll
