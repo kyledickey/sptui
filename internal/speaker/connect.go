@@ -62,8 +62,9 @@ func (s *Speaker) token(ctx context.Context, _ bool) (string, error) {
 }
 
 // playSession starts uri, resolved through the session service at url, by
-// sending the speaker a Connect play command.
-func (s *Speaker) playSession(ctx context.Context, uri, url string) error {
+// sending the speaker a Connect play command. It starts at the track skipTo
+// if the session has it, otherwise at the top.
+func (s *Speaker) playSession(ctx context.Context, uri, url, skipTo string) error {
 	st, err := s.status(ctx)
 	if err != nil {
 		return err
@@ -72,11 +73,15 @@ func (s *Speaker) playSession(ctx context.Context, uri, url string) error {
 	if err != nil {
 		return err
 	}
+	skip := map[string]any{}
+	if skipTo != "" {
+		skip["track_uri"] = skipTo
+	}
 	body, err := json.Marshal(map[string]any{"command": map[string]any{
 		"endpoint":    "play",
 		"context":     map[string]any{"uri": uri, "url": url, "metadata": map[string]string{}},
 		"play_origin": map[string]any{"feature_identifier": "sptui"},
-		"options":     map[string]any{"license": "on-demand", "skip_to": map[string]any{}, "player_options_override": map[string]any{}},
+		"options":     map[string]any{"license": "on-demand", "skip_to": skip, "player_options_override": map[string]any{}},
 	}})
 	if err != nil {
 		return err

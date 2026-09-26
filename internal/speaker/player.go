@@ -79,6 +79,9 @@ func (s *Speaker) Playback(ctx context.Context) (*spotify.PlaybackState, error) 
 		return nil, err
 	}
 	t := st.Track
+	if st.ContextUri != nil && *st.ContextUri == spotify.DJURI {
+		s.dj.playing(t.Uri)
+	}
 	track := &spotify.Track{
 		Name:       t.Name,
 		URI:        t.Uri,
@@ -148,7 +151,7 @@ func (s *Speaker) Play(ctx context.Context, opts spotify.PlayOptions) error {
 	var play daemon.ApiPlay
 	switch {
 	case opts.ContextURI == spotify.DJURI:
-		return s.playSession(ctx, spotify.DJURI, djSession+spotify.DJURI)
+		return s.playSession(ctx, spotify.DJURI, djSession+spotify.DJURI, s.dj.track())
 	case opts.ContextURI != "":
 		play = daemon.ApiPlay{Uri: opts.ContextURI, SkipToUri: opts.OffsetURI}
 	case len(opts.URIs) > 0:

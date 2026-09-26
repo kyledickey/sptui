@@ -39,6 +39,7 @@ type Speaker struct {
 	done    chan struct{}
 	err     error // why it stopped; read after done is closed
 	connect connect
+	dj      djResume
 }
 
 // HasLogin reports whether the speaker has a saved login, so it can start
@@ -56,6 +57,7 @@ func Start(ctx context.Context, cfg Config, creds Credentials, log *slog.Logger)
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	s := &Speaker{cancel: cancel, server: newLocalServer(), done: make(chan struct{})}
+	s.dj.path = filepath.Join(filepath.Dir(cfg.StatePath), "dj.json")
 	store := &stateStore{path: cfg.StatePath}
 
 	app, err := newApp(cfg, creds, store, s.server, log)
