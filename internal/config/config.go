@@ -62,13 +62,15 @@ type Theme struct {
 	// NowPlayingPanels lists the now-playing panels shown: 1 track,
 	// 2 lyrics, 3 up next. Pressing a number there toggles it.
 	NowPlayingPanels string `toml:"now_playing_panels"`
+	// Intro names the short animation played when sptui starts, or "off".
+	Intro string `toml:"intro"`
 }
 
 // Default returns the built-in configuration.
 func Default() Config {
 	return Config{
 		Player: Player{Enabled: true, Name: "sptui", Bitrate: 320, KeepAwake: "playing"},
-		Theme:  Theme{CoverArt: "auto", ScrollTitles: true, NowPlayingCover: "medium", NowPlayingPanels: "123"},
+		Theme:  Theme{CoverArt: "auto", ScrollTitles: true, NowPlayingCover: "medium", NowPlayingPanels: "123", Intro: "vinyl"},
 	}
 }
 
@@ -194,4 +196,8 @@ const template = `# sptui configuration. Everything here is optional.
 # Now-playing panels to show: 1 track, 2 lyrics, 3 up next. Press the
 # numbers in the view to toggle them.
 # now_playing_panels = "123"
+
+# The short animation played when sptui starts, or "off". See the list in
+# sptui's settings (press ,).
+# intro = "vinyl"
 `

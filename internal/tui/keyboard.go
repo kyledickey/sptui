@@ -87,7 +87,7 @@ func (m *Model) viewHelp() string {
 	return m.st.modal.Padding(1, 2).Render(title + "\n\n" + strings.Join(lines, "\n"))
 }
 
-func pick(cond bool, a, b string) string {
+func pick[T any](cond bool, a, b T) T {
 	if cond {
 		return a
 	}

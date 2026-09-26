@@ -161,8 +161,9 @@ type app struct {
 	log          *slog.Logger
 
 	// Set by configure from the config file.
-	cfg   config.Config
-	authn *auth.Authenticator
+	cfg        config.Config
+	authn      *auth.Authenticator
+	introShown bool
 }
 
 // configure (re)reads the config file, so settings changed in the UI take
@@ -192,8 +193,10 @@ func (a *app) session(ctx context.Context) (tui.Outcome, error) {
 		Config:     a.cfg,
 		SaveConfig: func(c config.Config) error { return config.Save(a.configPath, c) },
 		KeepAwake:  a.keeper.Set,
+		Intro:      !a.introShown, // not again on restart
 		Log:        a.log,
 	}
+	a.introShown = true
 	var backend tui.Backend
 	var spk *speaker.Speaker
 	if a.demo {

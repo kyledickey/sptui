@@ -1,10 +1,12 @@
-package tui
+// Package banner is a tiny pixel font, 4 pixels tall, drawn two pixels per
+// cell with half blocks, so each letter is 2 lines. Artist pages spell
+// names with it, and the intros spell sptui.
+package banner
 
 import "strings"
 
-// A tiny pixel font, 4 pixels tall, drawn two pixels per cell with half
-// blocks, so each letter is 2 lines. Artist pages spell names with it.
-var bannerFont = map[rune][4]string{
+// Font is each letter's pixels, top row first; X is lit.
+var Font = map[rune][4]string{
 	'A':  {".X.", "X.X", "XXX", "X.X"},
 	'B':  {"XX.", "XXX", "X.X", "XXX"},
 	'C':  {".XX", "X..", "X..", ".XX"},
@@ -52,12 +54,12 @@ var bannerFont = map[rune][4]string{
 	'+':  {"...", ".X.", "XXX", ".X."},
 }
 
-// banner spells s in the pixel font, as 2 lines, or reports false when a
+// Spell spells s in the pixel font, as 2 lines, or reports false when a
 // letter isn't in the font.
-func banner(s string) ([2]string, bool) {
+func Spell(s string) ([2]string, bool) {
 	var rows [2]strings.Builder
 	for i, r := range []rune(strings.ToUpper(s)) {
-		glyph, ok := bannerFont[r]
+		glyph, ok := Font[r]
 		if !ok {
 			return [2]string{}, false
 		}

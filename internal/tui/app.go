@@ -39,7 +39,9 @@ type Options struct {
 	// KeepAwake is told whether the computer should stay awake, following
 	// the keep-awake setting. Nil does nothing (see package awake).
 	KeepAwake func(on bool)
-	Log       *slog.Logger // required
+	// Intro plays the startup animation Config names, if any.
+	Intro bool
+	Log   *slog.Logger // required
 }
 
 // Outcome says why the UI exited.
@@ -104,6 +106,9 @@ type Model struct {
 	spinning bool
 	covers   covers
 	swatches swatches // cover colours
+
+	intro *introPlay // the startup animation, while it plays
+	bg    string     // terminal background as hex, once known
 
 	accentShown string    // the accent the styles were built with
 	selected    string    // which row is selected, to notice when it changes
@@ -185,6 +190,9 @@ func New(b Backend, opts Options) *Model {
 	}
 	m.player.every = cmp.Or(opts.PollInterval, 5*time.Second)
 	m.setTheme(true)
+	if opts.Intro {
+		m.playIntro(opts.Config.Theme.Intro, false) // Init starts the ticks
+	}
 	return m
 }
 
@@ -222,16 +230,23 @@ func (m *Model) Init() tea.Cmd {
 		tick(),
 		tea.RequestBackgroundColor,
 		requestCellSize(),
+		pick(m.intro != nil, introTick(), nil),
 	)
 }
 
 // Update handles a message and returns the next command. Afterwards it
 // brings cover art in line with what's on screen.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if cmd, ok := m.introUpdate(msg); ok {
+		return m, cmd
+	}
 	cmd := m.update(msg)
 	m.syncAwake()
 	m.syncSelected()
 	m.syncAccent()
+	if m.intro != nil {
+		return m, cmd // covers wait until the app is on screen
+	}
 	return m, tea.Batch(cmd, m.syncCovers(), m.syncSwatches(), m.syncLyrics())
 }
 
@@ -258,6 +273,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case uv.CellSizeEvent:
 		return m.setCellSize(msg.Width, msg.Height)
 	case tea.BackgroundColorMsg:
+		m.bg = hexOfColor(msg.Color)
 		m.setTheme(msg.IsDark())
 		return nil
 	case tea.KeyPressMsg:

@@ -85,6 +85,10 @@ func (m *Model) View() tea.View {
 			m.st.subtitle.Render("Make the terminal a little bigger")))
 		return v
 	}
+	if m.intro != nil {
+		v.SetContent(m.viewIntro())
+		return v
+	}
 
 	var screen string
 	if m.showingNowPlaying() {

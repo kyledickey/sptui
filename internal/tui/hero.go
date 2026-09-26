@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/kyledickey/sptui/internal/art"
+	"github.com/kyledickey/sptui/internal/banner"
 	"github.com/kyledickey/sptui/internal/spotify"
 )
 
@@ -273,7 +274,7 @@ func (m *Model) artistHero(p *page, w, n int, right string) []string {
 		drop  int // order to drop in when short of room; 0 never
 	}
 	var name []string
-	if big, ok := banner(ar.Name); ok && n >= 7 && lipgloss.Width(big[0]) <= w-lipgloss.Width(right)-2 {
+	if big, ok := banner.Spell(ar.Name); ok && n >= 7 && lipgloss.Width(big[0]) <= w-lipgloss.Width(right)-2 {
 		name = []string{spread(m.st.on.Render(big[0]), right, w), m.st.on.Render(big[1])}
 	} else {
 		name = []string{m.st.colHead.Render("ARTIST"),

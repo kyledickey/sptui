@@ -13,6 +13,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/kyledickey/sptui/internal/config"
+	"github.com/kyledickey/sptui/internal/intro"
 )
 
 // The settings screen edits the config from inside sptui. Appearance
@@ -112,6 +113,18 @@ func (m *Model) settings() []setting {
 			choices: []string{"small", "medium", "large"},
 			get:     func(c config.Config) string { return c.Theme.NowPlayingCover },
 			set:     func(c *config.Config, v string) error { c.Theme.NowPlayingCover = v; return nil },
+		},
+		{
+			section: "Appearance", label: "Startup animation",
+			help:    "Plays while your library loads; any key skips it. Changing it here plays it for you.",
+			choices: append(intro.Names(), "off"),
+			get: func(c config.Config) string {
+				if _, ok := intro.Find(c.Theme.Intro); ok {
+					return c.Theme.Intro
+				}
+				return "off"
+			},
+			set: func(c *config.Config, v string) error { c.Theme.Intro = v; return nil },
 		},
 		{
 			section: "Player", label: "Play music in sptui", restart: true,
@@ -337,6 +350,9 @@ func (m *Model) applySetting(s setting, value string) tea.Cmd {
 	// Live changes.
 	if old.Theme.Accent != cfg.Theme.Accent {
 		m.setTheme(m.dark)
+	}
+	if old.Theme.Intro != cfg.Theme.Intro {
+		return m.playIntro(cfg.Theme.Intro, true)
 	}
 	if artMode(old) != artMode(cfg) {
 		free := m.freeCovers()

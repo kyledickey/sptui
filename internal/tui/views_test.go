@@ -233,16 +233,6 @@ func TestMarquee(t *testing.T) {
 	}
 }
 
-func TestBanner(t *testing.T) {
-	big, ok := banner("Hi 5")
-	if !ok || big[0] != "█▄█ ▀█▀    ██▀" || big[1] != "█ █ ▄█▄    ▄▄▀" {
-		t.Fatalf("banner = %q, %v", big, ok)
-	}
-	if _, ok := banner("Björk"); ok {
-		t.Fatal("letters outside the font should fall back")
-	}
-}
-
 func TestHelpKeyboard(t *testing.T) {
 	d := newDriver(t, 120, 40)
 	d.press("?")
