@@ -1,6 +1,10 @@
 package tui
 
-import "github.com/kyledickey/sptui/internal/spotify"
+import (
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/kyledickey/sptui/internal/spotify"
+)
 
 // navItem is an entry in the sidebar.
 type navItem struct {
@@ -9,6 +13,7 @@ type navItem struct {
 	header   bool
 	playlist *spotify.Playlist
 	open     func(m *Model) *page
+	play     func(m *Model) tea.Cmd // starts playback instead of opening a page
 }
 
 // sidebar lists library sections followed by the user's playlists.
@@ -35,6 +40,7 @@ func newSidebar() sidebar {
 			{icon: "♪", label: "Artists", open: func(m *Model) *page { return artistsPage(m.backend) }},
 			{icon: "◉", label: "Podcasts", open: func(m *Model) *page { return podcastsPage(m.backend) }},
 			{icon: "◈", label: "Your Episodes", open: func(m *Model) *page { return episodesPage(m.backend, m.me) }},
+			{icon: "✦", label: "DJ X", play: func(m *Model) tea.Cmd { return m.startDJ() }},
 			{icon: "▶", label: "Now Playing", open: func(m *Model) *page { return nowPlayingPage(m.backend) }},
 			{label: "Playlists", header: true},
 		},

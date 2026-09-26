@@ -25,7 +25,7 @@ func (k keyMap) shortHelp() map[string]string {
 		&k.VolUp: "vol+", &k.VolDown: "vol-", &k.Shuffle: "shufl", &k.Repeat: "rpt",
 		&k.Devices: "devs", &k.Like: "like", &k.LikePlaying: "like▶", &k.Queue: "queue",
 		&k.Account: "acct", &k.Help: "help", &k.Quit: "quit",
-		&k.PlayAll: "play⋯", &k.ShuffleAll: "shuf⋯",
+		&k.PlayAll: "play⋯", &k.ShuffleAll: "shuf⋯", &k.Radio: "radio",
 	}
 	out := map[string]string{}
 	for b, word := range short {
@@ -79,7 +79,7 @@ func (m *Model) viewHelp() string {
 	lines = append(lines, "",
 		extra(k.PlayPause, k.Enter, k.Back, k.Focus),
 		extra(k.SeekBack, k.SeekFwd, k.VolUp, k.VolDown, k.Reload),
-		extra(k.Bottom, k.LikePlaying, k.NowMenu, k.PlayAll, k.ShuffleAll),
+		extra(k.Bottom, k.LikePlaying, k.NowMenu, k.PlayAll, k.ShuffleAll, k.Radio),
 		"",
 		m.st.keyDesc.Render("Press m on anything to see everything you can do with it. Any key closes."),
 	)

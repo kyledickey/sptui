@@ -34,10 +34,11 @@ type Credentials struct {
 
 // Speaker is a running Spotify Connect device.
 type Speaker struct {
-	cancel context.CancelFunc
-	server *localServer
-	done   chan struct{}
-	err    error // why it stopped; read after done is closed
+	cancel  context.CancelFunc
+	server  *localServer
+	done    chan struct{}
+	err     error // why it stopped; read after done is closed
+	connect connect
 }
 
 // HasLogin reports whether the speaker has a saved login, so it can start

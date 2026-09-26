@@ -623,6 +623,9 @@ func (m *Model) push(p *page) tea.Cmd {
 // openNav replaces the navigation stack with the sidebar item at i.
 func (m *Model) openNav(i int) tea.Cmd {
 	it := m.sidebar.items[i]
+	if it.play != nil && m.me.ID != "" {
+		return it.play(m)
+	}
 	if it.open == nil || m.me.ID == "" {
 		return nil
 	}

@@ -147,6 +147,8 @@ func (s *Speaker) Devices(ctx context.Context) ([]spotify.Device, error) {
 func (s *Speaker) Play(ctx context.Context, opts spotify.PlayOptions) error {
 	var play daemon.ApiPlay
 	switch {
+	case opts.ContextURI == spotify.DJURI:
+		return s.playSession(ctx, spotify.DJURI, djSession+spotify.DJURI)
 	case opts.ContextURI != "":
 		play = daemon.ApiPlay{Uri: opts.ContextURI, SkipToUri: opts.OffsetURI}
 	case len(opts.URIs) > 0:

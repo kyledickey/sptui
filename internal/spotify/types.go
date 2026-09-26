@@ -256,6 +256,9 @@ type PlayOptions struct {
 	OffsetIndex int
 }
 
+// DJURI is Spotify's DJ: a playlist that talks between songs.
+const DJURI = "spotify:playlist:37i9dQZF1EYkqdzj48dyYq"
+
 // CoverURL picks the smallest image at least minSize pixels wide, or the
 // largest one if none is big enough. Images with unknown sizes (0) count as
 // big enough. It returns "" when there are no images.

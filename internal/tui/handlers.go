@@ -2,7 +2,9 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"math/rand/v2"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -203,6 +205,13 @@ func (m *Model) listKey(msg tea.KeyPressMsg, p *page) tea.Cmd {
 		case p.context != "":
 			return m.shufflePlay(playlistRow(spotify.Playlist{Name: p.title, URI: p.context, Items: &spotify.Count{Total: p.total}}))
 		}
+	case key.Matches(msg, k.Radio):
+		switch r, ok := p.selected(); {
+		case ok:
+			return m.startRadio(r)
+		case p.self != nil:
+			return m.startRadio(*p.self)
+		}
 	case key.Matches(msg, k.Menu):
 		if r, ok := p.selected(); ok {
 			m.menu = m.actionsMenu(r, p)
@@ -337,6 +346,56 @@ func (m *Model) shufflePlay(r row) tea.Cmd {
 			return err
 		}
 		return m.backend.SetShuffle(ctx, true)
+	})
+}
+
+// radioURI is Spotify's endless station seeded by r, or "" if r can't seed
+// one (podcasts, episodes, local files).
+func radioURI(r row) string {
+	switch r.kind {
+	case kindTrack:
+		if r.track.IsEpisode() || r.track.IsLocal || r.track.ID == "" {
+			return ""
+		}
+	case kindAlbum, kindArtist, kindPlaylist:
+	default:
+		return ""
+	}
+	if uri := r.uri(); strings.HasPrefix(uri, "spotify:") {
+		return "spotify:station:" + strings.TrimPrefix(uri, "spotify:")
+	}
+	return ""
+}
+
+// startRadio plays an endless mix of songs like r.
+func (m *Model) startRadio(r row) tea.Cmd {
+	uri := radioURI(r)
+	if uri == "" {
+		m.setStatus("Radio only works for songs, albums, artists and playlists", true)
+		return nil
+	}
+	return m.playSpeakerOnly("radio", uri, "Radio from “"+r.name()+"”")
+}
+
+func (m *Model) startDJ() tea.Cmd {
+	return m.playSpeakerOnly("DJ", spotify.DJURI, "DJ X is on")
+}
+
+// playSpeakerOnly plays a context that only sptui's own speaker can handle
+// (stations, the DJ); the Web API refuses them for other devices.
+func (m *Model) playSpeakerOnly(name, uri, ok string) tea.Cmd {
+	local := m.wantLocal()
+	onSpeaker := local || (m.opts.LocalDevice != "" && !m.remoteChosen)
+	return m.act(name, ok, func(ctx context.Context) error {
+		opts := spotify.PlayOptions{ContextURI: uri}
+		if err := m.playHere(ctx, local, &opts); err != nil {
+			return err
+		}
+		err := m.startPlayback(ctx, opts, nil)
+		if err != nil && !onSpeaker {
+			return errors.New(name + " only plays on sptui's own speaker — press d to switch")
+		}
+		return err
 	})
 }
 
