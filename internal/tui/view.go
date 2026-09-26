@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"hash/fnv"
+	"math"
 	"strings"
 	"time"
 
@@ -138,8 +140,40 @@ func spread(left, right string, w int) string {
 
 // --- header and footer ---
 
+// logo is the wordmark: the name on an accent slab, and beside it a small
+// spectrum that dances while music plays and lies flat when it doesn't.
+func (m *Model) logo() string {
+	slab := m.st.logoEdge.Render("▐") + m.st.logo.Render("sptui") + m.st.logoEdge.Render("▌")
+	return " " + slab + " " + m.spectrum(time.Now())
+}
+
+const spectrumBars = 8
+
+var levels = []rune("▁▂▃▄▅▆▇█")
+
+// spectrum is a fake analyser for the playing song. Each song gets its own
+// shape from its URI, with the low bands riding higher, as in most music.
+func (m *Model) spectrum(now time.Time) string {
+	t := m.player.track()
+	if t == nil || !m.player.playing() {
+		return m.st.off.Render(strings.Repeat("▁", spectrumBars))
+	}
+	h := fnv.New32a()
+	h.Write([]byte(t.URI))
+	seed := h.Sum32()
+	step := float64(now.UnixMilli() / animTick.Milliseconds())
+	bars := make([]rune, spectrumBars)
+	for i := range bars {
+		phase := float64(seed>>(i*4)&15) / 2.5
+		v := 0.7 - 0.35*float64(i)/spectrumBars +
+			0.3*math.Sin(step*0.9+phase) + 0.2*math.Sin(step*2.3+phase*1.7)
+		bars[i] = levels[min(max(int(v*float64(len(levels))), 0), len(levels)-1)]
+	}
+	return m.st.on.Render(string(bars))
+}
+
 func (m *Model) viewHeader() string {
-	left := m.st.logo.Render(" ◆ sptui")
+	left := m.logo()
 	var crumbs []string
 	for i, p := range m.stack {
 		title := p.title
