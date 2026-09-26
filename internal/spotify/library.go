@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Per-endpoint page size limits set by Spotify.
@@ -26,6 +27,11 @@ type (
 	}
 	playlistItem struct {
 		Item *Track `json:"item"`
+	}
+	playHistory struct {
+		Track    *Track           `json:"track"`
+		PlayedAt time.Time        `json:"played_at"`
+		Context  *PlaybackContext `json:"context"`
 	}
 	savedShow struct {
 		Show *Show `json:"show"`
@@ -95,13 +101,22 @@ func (c *Client) FollowedArtists(ctx context.Context) ([]Artist, error) {
 	}
 }
 
-// RecentlyPlayed returns the user's last 50 played tracks, newest first.
+// RecentlyPlayed returns the user's last 50 played tracks, newest first,
+// with PlayedAt and PlayedFrom set.
 func (c *Client) RecentlyPlayed(ctx context.Context) ([]Track, error) {
-	var page Page[savedTrack]
+	var page Page[playHistory]
 	if err := c.get(ctx, "/me/player/recently-played", url.Values{"limit": {strconv.Itoa(pageLimit)}}, &page); err != nil {
 		return nil, err
 	}
-	return mapPage(page, func(it savedTrack) *Track { return it.Track }).Items, nil
+	return mapPage(page, func(it playHistory) *Track {
+		if it.Track != nil {
+			it.Track.PlayedAt = it.PlayedAt
+			if it.Context != nil {
+				it.Track.PlayedFrom = it.Context.URI
+			}
+		}
+		return it.Track
+	}).Items, nil
 }
 
 // TopTracks returns the user's most played tracks over the last ~6 months.

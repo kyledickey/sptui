@@ -31,11 +31,12 @@ func (u User) Name() string {
 
 // Artist is a Spotify artist. Simplified artist objects only carry ID, Name and URI.
 type Artist struct {
-	ID     string   `json:"id"`
-	Name   string   `json:"name"`
-	URI    string   `json:"uri"`
-	Genres []string `json:"genres"`
-	Images []Image  `json:"images"`
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	URI       string   `json:"uri"`
+	Genres    []string `json:"genres"`
+	Images    []Image  `json:"images"`
+	Followers *Count   `json:"followers,omitempty"`
 }
 
 // Album is a Spotify album. Tracks is only set when fetching a single album.
@@ -74,19 +75,36 @@ type Show struct {
 // Track is a playable item. Episodes decode into Track too; they carry Show
 // instead of Album and Artists.
 type Track struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	URI         string   `json:"uri"`
-	Type        string   `json:"type"`
-	Artists     []Artist `json:"artists"`
-	Album       Album    `json:"album"`
-	Show        *Show    `json:"show,omitempty"`
-	DurationMS  int      `json:"duration_ms"`
-	TrackNumber int      `json:"track_number"`
-	Explicit    bool     `json:"explicit"`
-	IsLocal     bool     `json:"is_local"`
-	ReleaseDate string   `json:"release_date"` // episodes only
-	Images      []Image  `json:"images"`       // episodes only
+	ID          string       `json:"id"`
+	Name        string       `json:"name"`
+	URI         string       `json:"uri"`
+	Type        string       `json:"type"`
+	Artists     []Artist     `json:"artists"`
+	Album       Album        `json:"album"`
+	Show        *Show        `json:"show,omitempty"`
+	DurationMS  int          `json:"duration_ms"`
+	TrackNumber int          `json:"track_number"`
+	Explicit    bool         `json:"explicit"`
+	IsLocal     bool         `json:"is_local"`
+	ReleaseDate string       `json:"release_date"` // episodes only
+	Images      []Image      `json:"images"`       // episodes only
+	ResumePoint *ResumePoint `json:"resume_point,omitempty"`
+
+	// Set on tracks from RecentlyPlayed: when it played and what from.
+	PlayedAt   time.Time `json:"played_at,omitzero"`
+	PlayedFrom string    `json:"played_from,omitempty"`
+}
+
+// ResumePoint is how far the user got through an episode.
+type ResumePoint struct {
+	FullyPlayed      bool `json:"fully_played"`
+	ResumePositionMS int  `json:"resume_position_ms"`
+}
+
+// Released is when an episode came out, or zero if unknown.
+func (t Track) Released() time.Time {
+	d, _ := time.Parse(time.DateOnly, t.ReleaseDate)
+	return d
 }
 
 // IsEpisode reports whether t is a podcast episode rather than a song.

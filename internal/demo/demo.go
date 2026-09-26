@@ -86,8 +86,9 @@ func (b *Backend) generate() {
 	for i, name := range artistNames {
 		ar := spotify.Artist{
 			ID: fmt.Sprintf("ar%d", i), Name: name, URI: fmt.Sprintf("spotify:artist:ar%d", i),
-			Genres: []string{genres[i%len(genres)], genres[(i+3)%len(genres)]},
-			Images: coverImages(fmt.Sprintf("ar%d", i)),
+			Genres:    []string{genres[i%len(genres)], genres[(i+3)%len(genres)]},
+			Images:    coverImages(fmt.Sprintf("ar%d", i)),
+			Followers: &spotify.Count{Total: 1000 + r.IntN(2_000_000)},
 		}
 		b.artists = append(b.artists, ar)
 		for j := range 3 + r.IntN(8) {
@@ -135,8 +136,21 @@ func (b *Backend) generate() {
 	b.addPlaylist("pl-chill", "Chill Vibes", editorial, r.Perm(len(b.tracks))[:40])
 
 	b.devices = slices.Clone(devices)
-	for _, i := range r.Perm(len(b.tracks))[:50] {
-		b.recent = append(b.recent, b.tracks[i])
+	// Recent plays over the last week, some songs on repeat, played from
+	// playlists or their albums.
+	favourites := r.Perm(len(b.tracks))[:4]
+	played := time.Now().Add(-10 * time.Minute)
+	for i := range 50 {
+		t := b.tracks[r.IntN(len(b.tracks))]
+		if i%3 == 0 {
+			t = b.tracks[favourites[r.IntN(len(favourites))]]
+		}
+		t.PlayedAt, t.PlayedFrom = played, t.Album.URI
+		if i%4 == 1 {
+			t.PlayedFrom = b.playlists[r.IntN(len(b.playlists))].URI
+		}
+		b.recent = append(b.recent, t)
+		played = played.Add(-time.Duration(20+r.IntN(300)) * time.Minute)
 	}
 
 	for i, name := range showNames {
@@ -148,7 +162,7 @@ func (b *Backend) generate() {
 		}
 		n := 8 + r.IntN(20)
 		sh.TotalEpisodes = n
-		released := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)
+		released := time.Now().AddDate(0, 0, -1-2*i)
 		for k := range n {
 			eid := fmt.Sprintf("ep%d_%d", i, k)
 			b.episodes = append(b.episodes, spotify.Track{
@@ -157,6 +171,12 @@ func (b *Backend) generate() {
 				DurationMS: (20 + r.IntN(70)) * 60 * 1000, ReleaseDate: released.AddDate(0, 0, -7*k).Format(time.DateOnly),
 				Images: sh.Images,
 			})
+			switch k {
+			case 1: // half-listened
+				b.episodes[len(b.episodes)-1].ResumePoint = &spotify.ResumePoint{ResumePositionMS: (10 + r.IntN(15)) * 60 * 1000}
+			case 2, 3:
+				b.episodes[len(b.episodes)-1].ResumePoint = &spotify.ResumePoint{FullyPlayed: true}
+			}
 		}
 		b.shows = append(b.shows, sh)
 		if i < 3 {

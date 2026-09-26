@@ -72,7 +72,7 @@ func WebAPIWith(clientID, redirectURI string) App {
 			"user-read-currently-playing", "user-read-recently-played", "user-top-read",
 			"user-library-read", "user-library-modify", "user-follow-read", "user-follow-modify",
 			"playlist-read-private", "playlist-read-collaborative", "playlist-modify-public",
-			"playlist-modify-private",
+			"playlist-modify-private", "user-read-playback-position",
 		},
 	}
 }
