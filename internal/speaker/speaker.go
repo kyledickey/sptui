@@ -116,6 +116,7 @@ func Forget(statePath string) error {
 
 func newApp(cfg Config, creds Credentials, store *stateStore, server *localServer, log *slog.Logger) (*daemon.App, error) {
 	llog := &logger{log: log.With("pkg", "librespot")}
+	routeLogrus(llog.log)
 
 	dc := &daemon.Config{
 		DeviceName:       cfg.Name,

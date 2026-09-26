@@ -11,6 +11,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/devgianlu/go-librespot v0.10.2
 	github.com/godbus/dbus/v5 v5.2.0
+	github.com/sirupsen/logrus v1.9.3
 	golang.org/x/image v0.46.0
 	golang.org/x/oauth2 v0.37.0
 )
@@ -41,7 +42,6 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rs/cors v1.11.1 // indirect
-	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/xlab/vorbis-go v0.0.0-20210911202351-b5b85f1ec645 // indirect
