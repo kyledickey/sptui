@@ -100,6 +100,8 @@ type Model struct {
 	remoteChosen bool // the user moved playback to another device on purpose
 	menu         *menu
 	showHelp     bool
+	helpLayer    int    // the help keyboard's layer: plain, shift or ctrl
+	helpPicked   string // the key last pressed on the help keyboard
 	status       status
 
 	spinner  spinner.Model

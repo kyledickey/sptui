@@ -22,8 +22,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	}
 	switch {
 	case m.showHelp:
-		m.showHelp = false
-		return nil
+		return m.helpKey(msg)
 	case m.menu != nil:
 		return m.menuKey(msg)
 	case m.inputMode != inputNone:
@@ -71,7 +70,7 @@ func (m *Model) globalKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	case key.Matches(msg, k.Quit):
 		return m.quit(), true
 	case key.Matches(msg, k.Help):
-		m.showHelp = true
+		m.openHelp()
 	case key.Matches(msg, k.Search):
 		return m.openSearch(), true
 	case key.Matches(msg, k.PlayPause):

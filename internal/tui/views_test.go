@@ -234,13 +234,33 @@ func TestMarquee(t *testing.T) {
 }
 
 func TestHelpKeyboard(t *testing.T) {
-	d := newDriver(t, 120, 40)
+	d := newDriver(t, 150, 40)
 	d.press("?")
 	view := ansi.Strip(d.m.View().Content)
-	for _, want := range []string{"│  q  │", "quit", "shufl", "S shuffle this page"} {
+	for _, want := range []string{" q ", "quit", "shuffle", "play / pause", "Press any key"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("help lacks %q", want)
 		}
+	}
+
+	// Keys are looked up, not run; a capital flips to the shift layer.
+	d.press("S")
+	view = ansi.Strip(d.m.View().Content)
+	for _, want := range []string{"shuffle this page", "mix all", "bottom"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("help after S lacks %q", want)
+		}
+	}
+	if !d.m.showHelp {
+		t.Fatal("S closed the help")
+	}
+	d.press("tab")
+	if view = ansi.Strip(d.m.View().Content); !strings.Contains(view, "reload") {
+		t.Error("ctrl layer lacks reload")
+	}
+	d.press("esc")
+	if d.m.showHelp {
+		t.Error("esc left the help open")
 	}
 }
 

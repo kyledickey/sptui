@@ -1,90 +1,329 @@
 package tui
 
 import (
+	"image/color"
+	"math"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
 
-// The help screen is a map of the keyboard: every key that does something
-// is lit with a word or two, the rest stay dim. Special keys and shifted
-// letters are listed underneath. Narrow terminals get the plain list.
+// The help screen is a keyboard. Keys that do something are solid caps
+// with a word on them, coloured by what they're for; the rest are dim.
+// Shift and ctrl are layers you flip through with tab. Pressing a key
+// picks it out and says what it does, instead of doing it. Small terminals
+// get the plain list.
 
-var keyboardRows = []string{"qwertyuiop", "asdfghjkl", "zxcvbnm,./"}
+// A keycap is one key on the board: its name as bubbletea reports it, and
+// its width in key units.
+type keycap struct {
+	id string
+	u  float64
+}
 
-const keyW = 5 // inner width of a key
-
-// shortHelp names each binding in a word, for its key on the map.
-func (k keyMap) shortHelp() map[string]string {
-	short := map[*key.Binding]string{
-		&k.Up: "up", &k.Down: "down", &k.Top: "top", &k.Bottom: "end",
-		&k.Search: "find", &k.Filter: "filtr", &k.Menu: "menu", &k.NowMenu: "npmnu",
-		&k.NowPlaying: "now", &k.Settings: "setup", &k.PlayPause: "play",
-		&k.Next: "next", &k.Prev: "prev", &k.SeekBack: "-10s", &k.SeekFwd: "+10s",
-		&k.VolUp: "vol+", &k.VolDown: "vol-", &k.Shuffle: "shufl", &k.Repeat: "rpt",
-		&k.Devices: "devs", &k.Like: "like", &k.LikePlaying: "like▶", &k.Queue: "queue",
-		&k.Account: "acct", &k.Help: "help", &k.Quit: "quit",
-		&k.PlayAll: "play⋯", &k.ShuffleAll: "shuf⋯", &k.Radio: "radio",
-	}
-	out := map[string]string{}
-	for b, word := range short {
-		for _, k := range b.Keys() {
-			if _, taken := out[k]; !taken {
-				out[k] = word
-			}
-		}
+func caps(ids string) []keycap {
+	var out []keycap
+	for _, r := range ids {
+		out = append(out, keycap{string(r), 1})
 	}
 	return out
 }
 
+// board is a real keyboard, trimmed to the keys sptui could use. Every row
+// is boardUnits wide.
+var board = [][]keycap{
+	append(append([]keycap{{"esc", 1}}, caps("1234567890-=")...), keycap{"backspace", 1.5}),
+	append(append([]keycap{{"tab", 1.5}}, caps("qwertyuiop[]")...), keycap{`\`, 1}),
+	append(append([]keycap{{"caps", 1.75}}, caps("asdfghjkl;'")...), keycap{"enter", 1.75}),
+	append(append([]keycap{{"shift", 2.25}}, caps("zxcvbnm,./")...), keycap{"shift", 2.25}),
+	{{"ctrl", 1.5}, {"alt", 1.25}, {"space", 6.75}, {"", 1}, {"left", 1}, {"up", 1}, {"down", 1}, {"right", 1}},
+}
+
+const boardUnits = 14.5
+
+// Layers of the board.
+const (
+	layerBase = iota
+	layerShift
+	layerCtrl
+	layers
+)
+
+var layerNames = [layers]string{"plain", "⇧ shift", "ctrl"}
+
+// shifted is what shift turns a key into.
+var shifted = map[string]string{
+	"1": "!", "2": "@", "3": "#", "4": "$", "5": "%", "6": "^", "7": "&", "8": "*", "9": "(", "0": ")",
+	"-": "_", "=": "+", "[": "{", "]": "}", `\`: "|", ";": ":", "'": `"`, ",": "<", ".": ">", "/": "?",
+}
+
+// unshifted undoes shifted, for keys pressed while the help is open.
+var unshifted = func() map[string]string {
+	out := map[string]string{}
+	for k, v := range shifted {
+		out[v] = k
+	}
+	return out
+}()
+
+// capGlyph is what's printed on a cap.
+var capGlyph = map[string]string{
+	"backspace": "⌫", "enter": "enter ⏎", "space": "space", "tab": "tab ⇥", "caps": "caps",
+	"shift": "⇧ shift", "ctrl": "ctrl", "alt": "alt", "esc": "esc", "left": "←", "up": "↑", "down": "↓", "right": "→",
+}
+
+// keyName is the key string a keycap sends on a layer.
+func keyName(id string, layer int) string {
+	switch layer {
+	case layerShift:
+		if s, ok := shifted[id]; ok {
+			return s
+		}
+		if len(id) == 1 && id >= "a" && id <= "z" {
+			return strings.ToUpper(id)
+		}
+		return "shift+" + id
+	case layerCtrl:
+		return "ctrl+" + id
+	}
+	return id
+}
+
+// capOf finds the keycap and layer that send a key string.
+func capOf(s string) (id string, layer int) {
+	switch {
+	case strings.HasPrefix(s, "ctrl+"):
+		return strings.TrimPrefix(s, "ctrl+"), layerCtrl
+	case strings.HasPrefix(s, "shift+"):
+		return strings.TrimPrefix(s, "shift+"), layerShift
+	case unshifted[s] != "":
+		return unshifted[s], layerShift
+	case len(s) == 1 && s >= "A" && s <= "Z":
+		return strings.ToLower(s), layerShift
+	}
+	return s, layerBase
+}
+
+// What a key is for, which picks its colour.
+const (
+	forMoving = iota
+	forPlaying
+	forLibrary
+)
+
+// legend is a key on the board: its binding, words for the keycap (longest
+// first; the first that fits is used), and what it's for.
+type legend struct {
+	b     key.Binding
+	words []string
+	kind  int
+}
+
+func (k keyMap) legends() []legend {
+	num := func(n string) legend {
+		return legend{key.NewBinding(key.WithKeys(n), key.WithHelp(n, "tab or panel "+n)), []string{"view " + n, "tab " + n}, forMoving}
+	}
+	return []legend{
+		{k.Up, []string{"up"}, forMoving},
+		{k.Down, []string{"down"}, forMoving},
+		{k.Top, []string{"top"}, forMoving},
+		{k.Bottom, []string{"bottom", "end"}, forMoving},
+		{k.PageUp, []string{"page ↑", "pg ↑"}, forMoving},
+		{k.PageDown, []string{"page ↓", "pg ↓"}, forMoving},
+		{k.Enter, []string{"open"}, forMoving},
+		{k.Back, []string{"back"}, forMoving},
+		{k.Focus, []string{"pane"}, forMoving},
+		{k.FocusLeft, []string{"side"}, forMoving},
+		{k.FocusRight, []string{"list"}, forMoving},
+		{k.Search, []string{"search", "find"}, forMoving},
+		{k.Filter, []string{"filter", "sift"}, forMoving},
+		{k.Reload, []string{"reload"}, forMoving},
+		{k.NowPlaying, []string{"lyrics", "words"}, forMoving},
+		num("1"), num("2"), num("3"),
+
+		{k.PlayPause, []string{"play / pause"}, forPlaying},
+		{k.Next, []string{"next"}, forPlaying},
+		{k.Prev, []string{"prev"}, forPlaying},
+		{k.SeekBack, []string{"−10s"}, forPlaying},
+		{k.SeekFwd, []string{"+10s"}, forPlaying},
+		{k.VolUp, []string{"vol +"}, forPlaying},
+		{k.VolDown, []string{"vol −"}, forPlaying},
+		{k.Shuffle, []string{"shuffle", "mix"}, forPlaying},
+		{k.Repeat, []string{"repeat", "loop"}, forPlaying},
+		{k.Devices, []string{"devices", "cast"}, forPlaying},
+		{k.PlayAll, []string{"play all", "▶ all"}, forPlaying},
+		{k.ShuffleAll, []string{"mix all", "⤮ all"}, forPlaying},
+		{k.Radio, []string{"radio"}, forPlaying},
+
+		{k.Menu, []string{"actions", "menu"}, forLibrary},
+		{k.NowMenu, []string{"▶ menu", "▶ ⋯"}, forLibrary},
+		{k.Like, []string{"like"}, forLibrary},
+		{k.LikePlaying, []string{"like ▶", "♥ ▶"}, forLibrary},
+		{k.Queue, []string{"queue"}, forLibrary},
+		{k.Settings, []string{"config", "setup"}, forLibrary},
+		{k.Account, []string{"account", "you"}, forLibrary},
+		{k.Help, []string{"help"}, forLibrary},
+		{k.Quit, []string{"quit"}, forLibrary},
+	}
+}
+
+// legendFor finds the legend of a key string.
+func (k keyMap) legendFor(s string) (legend, bool) {
+	for _, l := range k.legends() {
+		for _, bk := range l.b.Keys() {
+			if bk == s {
+				return l, true
+			}
+		}
+	}
+	return legend{}, false
+}
+
+// helpKey handles a key while the help is open: esc, ? and q close it,
+// tab flips the layer, and anything else is looked up. The plain list has
+// nothing to look up on, so any key closes it.
+func (m *Model) helpKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch s := msg.String(); {
+	case m.helpUnit() == 0, s == "esc", s == "?", s == "q":
+		m.showHelp = false
+	case s == "tab":
+		m.helpLayer, m.helpPicked = (m.helpLayer+1)%layers, ""
+	case s == "shift+tab":
+		m.helpLayer, m.helpPicked = (m.helpLayer+layers-1)%layers, ""
+	default:
+		_, m.helpLayer = capOf(s)
+		m.helpPicked = s
+	}
+	return nil
+}
+
+func (m *Model) openHelp() {
+	m.showHelp, m.helpLayer, m.helpPicked = true, layerBase, ""
+}
+
+// helpUnit is the width of one key unit in columns, or 0 if the keyboard
+// doesn't fit and the list should be shown instead.
+func (m *Model) helpUnit() int {
+	unit := min(9, int(float64(m.width-8)/boardUnits))
+	if unit < 7 || m.height < 28 {
+		return 0
+	}
+	return unit
+}
+
 func (m *Model) viewHelp() string {
-	width := len(keyboardRows[0])*(keyW+1) + 1 + 4 // keys, stagger
-	if m.width < width+8 || m.height < 24 {
+	unit := m.helpUnit()
+	if unit == 0 {
 		return m.viewHelpList()
 	}
-	words := m.keys.shortHelp()
-	var lines []string
-	for i, row := range keyboardRows {
-		indent := strings.Repeat(" ", i*2)
-		var top, face, word, bottom strings.Builder
-		for j, r := range row {
-			k := string(r)
-			w, used := words[k]
-			edge, cap, label := m.st.off, m.st.off, m.st.off
-			if used {
-				edge, cap, label = m.st.subtitle, m.st.key, m.st.on
+	legends := map[string]legend{}
+	for _, l := range m.keys.legends() {
+		for _, k := range l.b.Keys() {
+			if _, taken := legends[k]; !taken {
+				legends[k] = l
 			}
-			left := pick(j == 0, "│", "") // keys share the border between them
-			top.WriteString(edge.Render(pick(j == 0, "╭", "┬") + strings.Repeat("─", keyW)))
-			face.WriteString(edge.Render(left) + cap.Render(lipgloss.PlaceHorizontal(keyW, lipgloss.Center, k)) + edge.Render("│"))
-			word.WriteString(edge.Render(left) + label.Render(lipgloss.PlaceHorizontal(keyW, lipgloss.Center, w)) + edge.Render("│"))
-			bottom.WriteString(edge.Render(pick(j == 0, "╰", "┴") + strings.Repeat("─", keyW)))
 		}
-		top.WriteString(m.st.off.Render("╮"))
-		bottom.WriteString(m.st.off.Render("╯"))
-		lines = append(lines, indent+top.String(), indent+face.String(), indent+word.String(), indent+bottom.String())
+	}
+	ink := [...]color.Color{forMoving: m.st.text, forPlaying: m.st.accent, forLibrary: m.st.artist}
+	face := pick(m.dark, lipgloss.Color("#30353d"), lipgloss.Color("#dadee4"))
+	dead := pick(m.dark, lipgloss.Color("#1f2227"), lipgloss.Color("#eef0f3"))
+	pickedID, _ := capOf(m.helpPicked)
+	base := lipgloss.NewStyle()
+	accentInk := inkOn(m.accentHex())
+
+	var lines []string
+	for _, row := range board {
+		var top, bottom, lip strings.Builder
+		cum, end := 0.0, 0
+		for _, c := range row {
+			start := int(math.Round(cum * float64(unit)))
+			cum += c.u
+			w := int(math.Round(cum*float64(unit))) - start - 1
+			gap := strings.Repeat(" ", start-end)
+			end = start + w
+			top.WriteString(gap)
+			bottom.WriteString(gap)
+			lip.WriteString(gap)
+			if c.id == "" {
+				blank := strings.Repeat(" ", w)
+				top.WriteString(blank)
+				bottom.WriteString(blank)
+				lip.WriteString(blank)
+				continue
+			}
+
+			name := keyName(c.id, m.helpLayer)
+			l, used := legends[name]
+			glyph := capGlyph[c.id]
+			if glyph == "" {
+				glyph = c.id
+				if m.helpLayer == layerShift {
+					glyph = keyName(c.id, layerShift)
+				}
+			}
+			modifier := (c.id == "shift" && m.helpLayer == layerShift) || (c.id == "ctrl" && m.helpLayer == layerCtrl)
+			picked := m.helpPicked != "" && c.id == pickedID
+
+			bg, glyphFg, wordFg := dead, m.st.faint, m.st.faint
+			if used {
+				bg, glyphFg, wordFg = face, m.st.text, ink[l.kind]
+			}
+			if picked || modifier {
+				bg, glyphFg, wordFg = m.st.accent, accentInk, accentInk
+			}
+			var word string
+			if used {
+				for _, wd := range l.words {
+					if word = wd; lipgloss.Width(wd) < w {
+						break
+					}
+				}
+			}
+			cell := base.Background(bg)
+			top.WriteString(cell.Foreground(glyphFg).Bold(used || modifier).Render(" " + fit(glyph, w-1)))
+			bottom.WriteString(cell.Foreground(wordFg).Bold(picked).Render(" " + fit(word, w-1)))
+			lip.WriteString(base.Foreground(bg).Render(strings.Repeat("▀", w)))
+		}
+		lines = append(lines, top.String(), bottom.String(), lip.String())
+	}
+	boardW := int(math.Round(boardUnits*float64(unit))) - 1
+
+	// Title, with the layers as tabs and a colour key.
+	var tabs []string
+	for i, n := range layerNames {
+		if i == m.helpLayer {
+			tabs = append(tabs, base.Foreground(accentInk).Background(m.st.accent).Bold(true).Render(" "+n+" "))
+		} else {
+			tabs = append(tabs, m.st.keyDesc.Render(" "+n+" "))
+		}
+	}
+	left := m.st.modalTitle.Render("Keys") + "   " + strings.Join(tabs, " ")
+	swatch := func(c color.Color, what string) string {
+		return base.Foreground(c).Render("■") + " " + m.st.keyDesc.Render(what)
+	}
+	right := swatch(m.st.text, "move") + "   " + swatch(m.st.accent, "play") + "   " + swatch(m.st.artist, "library")
+	title := spread(left, right, boardW)
+
+	// What the picked key does.
+	var detail string
+	switch l, ok := m.keys.legendFor(m.helpPicked); {
+	case m.helpPicked == "":
+		detail = m.st.keyDesc.Render("Press any key to see what it does.")
+	case !ok:
+		detail = m.st.key.Render(m.helpPicked) + m.st.keyDesc.Render("  does nothing")
+	default:
+		chip := base.Foreground(accentInk).Background(m.st.accent).Bold(true).Render(" " + m.helpPicked + " ")
+		detail = chip + "  " + base.Foreground(ink[l.kind]).Bold(true).Render(l.b.Help().Desc)
 	}
 
-	// Keys that aren't letters, and shifted letters.
-	k := m.keys
-	extra := func(bs ...key.Binding) string {
-		var parts []string
-		for _, b := range bs {
-			h := b.Help()
-			parts = append(parts, m.st.key.Render(h.Key)+" "+m.st.keyDesc.Render(h.Desc))
-		}
-		return strings.Join(parts, m.st.off.Render("  ·  "))
-	}
-	lines = append(lines, "",
-		extra(k.PlayPause, k.Enter, k.Back, k.Focus),
-		extra(k.SeekBack, k.SeekFwd, k.VolUp, k.VolDown, k.Reload),
-		extra(k.Bottom, k.LikePlaying, k.NowMenu, k.PlayAll, k.ShuffleAll, k.Radio),
-		"",
-		m.st.keyDesc.Render("Press m on anything to see everything you can do with it. Any key closes."),
-	)
-	title := m.st.modalTitle.Render("Keys")
-	return m.st.modal.Padding(1, 2).Render(title + "\n\n" + strings.Join(lines, "\n"))
+	hint := func(k, what string) string { return m.st.key.Render(k) + " " + m.st.keyDesc.Render(what) }
+	dot := m.st.off.Render("  ·  ")
+	footer := hint("tab", "shift / ctrl") + dot + hint("m", "on anything shows all you can do with it") + dot + hint("esc", "close")
+
+	body := title + "\n\n" + strings.Join(lines, "\n") + "\n\n" + detail + "\n\n" + footer
+	return m.st.modal.Padding(1, 2).Render(body)
 }
 
 func pick[T any](cond bool, a, b T) T {
