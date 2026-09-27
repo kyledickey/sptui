@@ -1,4 +1,4 @@
-# sptui
+# [sptui](https://sptui.sh)
 
 Spotify in your terminal. A clean, keyboard-first (mouse works too) Spotify
 client written in Go with [Bubble Tea](https://github.com/charmbracelet/bubbletea)
