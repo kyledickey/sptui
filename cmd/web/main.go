@@ -24,6 +24,9 @@ Flags:
 `
 
 func main() {
+	// Railway treats every line on stderr as an error, including slog's
+	// default INFO output. Keep routine logs on stdout with their own level.
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	if err := run(os.Args[1:]); err != nil && !errors.Is(err, flag.ErrHelp) {
 		fmt.Fprintln(os.Stderr, "web:", err)
 		os.Exit(1)
