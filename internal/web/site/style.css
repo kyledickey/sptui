@@ -120,8 +120,8 @@ h1 {
   color: var(--muted);
 }
 
-.install {
-  margin-top: 22px;
+.panel.install {
+  margin-top: 48px;
 }
 
 .install pre {
@@ -165,6 +165,43 @@ h1 {
   position: absolute;
   top: -0.85em;
   right: 14px;
+}
+
+/* The by-hand way's systems and copy, on a row above its commands. */
+.install .bar {
+  display: flex;
+  justify-content: space-between;
+  padding: 14px 12px 0;
+}
+
+.bar .copy {
+  position: static;
+}
+
+.bar + pre {
+  padding-top: 12px;
+}
+
+/* "or", between the install box's two ways, on a rule like the shelves'. */
+.or {
+  display: flex;
+  align-items: center;
+  gap: 1ch;
+  margin: 0;
+  padding: 0 18px;
+  color: var(--muted);
+}
+
+.or::before,
+.or::after {
+  content: "";
+  flex: 1;
+  height: var(--line);
+  background: var(--faint);
+}
+
+.or::before {
+  flex: 0 0 2ch;
 }
 
 .note {
@@ -228,10 +265,6 @@ code {
 
 .focused > .panel-title {
   color: var(--accent);
-}
-
-.panel-title.tabs {
-  padding: 0 2px;
 }
 
 #app {

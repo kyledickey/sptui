@@ -1,29 +1,30 @@
-// The install box: a tab per system, remembered, and a copy button.
+// The install box's two ways: each copies what it shows, and the one built by
+// hand has a tab per system, remembered.
 
-const box = document.querySelector(".install");
-const tabs = [...box.querySelectorAll("[role=tab]")];
-const copy = box.querySelector(".copy");
-let current;
+for (const box of document.querySelectorAll(".install section")) {
+  const copy = box.querySelector(".copy");
+  copy.addEventListener("click", async () => {
+    const shown = [...box.querySelectorAll("pre")].find((pre) => !pre.hidden);
+    await navigator.clipboard.writeText(shown.textContent.trim());
+    copy.textContent = "copied";
+    setTimeout(() => (copy.textContent = "copy"), 1500);
+  });
 
-function pick(os) {
-  current = box.querySelector(`pre[data-os="${os}"]`) ?? box.querySelector("pre");
-  for (const t of tabs) t.setAttribute("aria-selected", t.dataset.os === current.dataset.os);
-  for (const pre of box.querySelectorAll("pre")) pre.hidden = pre !== current;
+  const tabs = [...box.querySelectorAll("[role=tab]")];
+  if (!tabs.length) continue;
+  const pick = (os) => {
+    const current = box.querySelector(`pre[data-os="${os}"]`) ?? box.querySelector("pre");
+    for (const t of tabs) t.setAttribute("aria-selected", t.dataset.os === current.dataset.os);
+    for (const pre of box.querySelectorAll("pre")) pre.hidden = pre !== current;
+    try {
+      localStorage.setItem("os", current.dataset.os);
+    } catch {}
+  };
+  for (const t of tabs) t.addEventListener("click", () => pick(t.dataset.os));
+
+  let saved = null;
   try {
-    localStorage.setItem("os", current.dataset.os);
+    saved = localStorage.getItem("os");
   } catch {}
+  pick(saved ?? (/Linux/.test(navigator.userAgent) ? "debian" : "macos"));
 }
-
-for (const t of tabs) t.addEventListener("click", () => pick(t.dataset.os));
-
-copy.addEventListener("click", async () => {
-  await navigator.clipboard.writeText(current.textContent.trim());
-  copy.textContent = "copied";
-  setTimeout(() => (copy.textContent = "copy"), 1500);
-});
-
-let saved = null;
-try {
-  saved = localStorage.getItem("os");
-} catch {}
-pick(saved ?? (/Linux/.test(navigator.userAgent) ? "debian" : "macos"));

@@ -34,22 +34,6 @@
       <h1>Spotify in your terminal.</h1>
       <p class="lede">A fast, keyboard-driven Spotify client that plays music itself. No Spotify app needed.</p>
 
-      <div class="panel focused install">
-        <div class="panel-title tabs" role="tablist" aria-label="System">
-          <button role="tab" data-os="macos">macOS</button>
-          <button role="tab" data-os="arch">Arch</button>
-          <button role="tab" data-os="debian">Debian / Ubuntu</button>
-        </div>
-        <button class="copy">copy</button>
-        <pre data-os="macos"><code>brew install libogg libvorbis flac mpg123
-go install github.com/kyledickey/sptui/cmd/sptui@latest</code></pre>
-        <pre data-os="arch" hidden><code>sudo pacman -S libogg libvorbis flac mpg123 alsa-lib
-go install github.com/kyledickey/sptui/cmd/sptui@latest</code></pre>
-        <pre data-os="debian" hidden><code>sudo apt install libogg-dev libvorbis-dev libflac-dev libmpg123-dev libasound2-dev
-go install github.com/kyledickey/sptui/cmd/sptui@latest</code></pre>
-      </div>
-      <p class="note">Then run <code>sptui</code>. Needs Go and Spotify Premium.</p>
-
       <figure id="app" class="panel">
         <figcaption class="panel-title" data-caption>sptui -demo</figcaption>
         <canvas role="img" aria-label="sptui running on made-up music"></canvas>
@@ -59,6 +43,32 @@ go install github.com/kyledickey/sptui/cmd/sptui@latest</code></pre>
         <button data-show="playing" data-key="o">now playing</button>
         <button data-show="intro" data-key="i">intro</button>
       </div>
+
+      <div class="panel focused install">
+        <div class="panel-title">install</div>
+        <section>
+          <button class="copy">copy</button>
+          <pre><code>curl -fsSL https://sptui.sh/install.sh | bash</code></pre>
+        </section>
+        <p class="or">or build it yourself, with Go</p>
+        <section>
+          <div class="bar">
+            <div class="tabs" role="tablist" aria-label="System">
+              <button role="tab" data-os="macos">macOS</button>
+              <button role="tab" data-os="arch">Arch</button>
+              <button role="tab" data-os="debian">Debian / Ubuntu</button>
+            </div>
+            <button class="copy">copy</button>
+          </div>
+          <pre data-os="macos"><code>brew install libogg libvorbis flac mpg123
+go install github.com/kyledickey/sptui/cmd/sptui@latest</code></pre>
+          <pre data-os="arch" hidden><code>sudo pacman -S libogg libvorbis flac mpg123 alsa-lib
+go install github.com/kyledickey/sptui/cmd/sptui@latest</code></pre>
+          <pre data-os="debian" hidden><code>sudo apt install libogg-dev libvorbis-dev libflac-dev libmpg123-dev libasound2-dev
+go install github.com/kyledickey/sptui/cmd/sptui@latest</code></pre>
+        </section>
+      </div>
+      <p class="note">Then run <code>sptui</code>. Needs Spotify Premium.</p>
 
       <h2>What it does</h2>
       <ul class="features">
