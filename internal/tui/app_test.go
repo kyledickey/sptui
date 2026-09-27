@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"image"
 	"image/png"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -142,20 +141,6 @@ func (d *driver) run(cmd tea.Cmd) {
 			return
 		}
 	}
-}
-
-// sequence unpacks tea.Sequence's unexported message, a []tea.Cmd, which
-// must run in order.
-func sequence(msg tea.Msg) ([]tea.Cmd, bool) {
-	v := reflect.ValueOf(msg)
-	if v.Kind() != reflect.Slice || v.Type().Elem() != reflect.TypeFor[tea.Cmd]() {
-		return nil, false
-	}
-	cmds := make([]tea.Cmd, v.Len())
-	for i := range cmds {
-		cmds[i] = v.Index(i).Interface().(tea.Cmd)
-	}
-	return cmds, true
 }
 
 // press sends keys, e.g. "j", "enter", "ctrl+r".

@@ -259,6 +259,32 @@ func (c *canvas) render(fade float64, bg string) string {
 	return strings.Join(lines, "\n")
 }
 
+// Grid is one frame as data rather than terminal text, for drawing it
+// somewhere else (the website). Colours are unfaded; Fade is how far to
+// blend them all towards the background.
+type Grid struct {
+	W, H   int
+	Fade   float64
+	Pixels [][]string // 2H rows of W, colour or ""
+	Cells  [][]Cell   // H rows of W, under the pixels
+}
+
+// Cell is a character drawn in a cell, or "" for none.
+type Cell struct{ Char, Color string }
+
+// Grid draws the animation t ms in, as data.
+func (p *Play) Grid(t float64) Grid {
+	c := p.Anim.scene(p, t)
+	g := Grid{W: c.w, H: c.h, Fade: p.Faded(t), Pixels: c.px, Cells: make([][]Cell, c.h)}
+	for y, row := range c.cells {
+		g.Cells[y] = make([]Cell, c.w)
+		for x, cell := range row {
+			g.Cells[y][x] = Cell{cell.s, cell.fg}
+		}
+	}
+	return g
+}
+
 // mixHex blends colour a towards b by f in [0, 1].
 func mixHex(a, b string, f float64) string {
 	ar, ag, ab, ok1 := parseHex(a)

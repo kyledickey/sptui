@@ -16,13 +16,21 @@ var embedded embed.FS
 // Site is the embedded site.
 var Site, _ = fs.Sub(embedded, "site")
 
-// Handler serves site. Pages are addressed without their .html, so
+// Handler serves site, and sptui's startup animations for it to play (see
+// intros). Pages are addressed without their .html, so
 // site/about.html is /about, site/docs/index.html is /docs and
 // site/index.html is /; other files, like
 // style.css, are served as is. Anything else gets site/404.html.
 func Handler(site fs.FS) http.Handler {
 	files := http.FileServerFS(site)
 	mux := http.NewServeMux()
+	var anims intros
+	mux.HandleFunc("GET /intros.json", anims.serveIndex)
+	mux.HandleFunc("GET /intros/{file}", anims.serveAnim)
+	var shots screens
+	mux.HandleFunc("GET /screens/{file}", shots.serve)
+	go anims.load() // draw them now, not on the first visit
+	go shots.load()
 	mux.HandleFunc("GET /{path...}", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("path")
 		switch {

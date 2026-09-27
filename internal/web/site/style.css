@@ -1,0 +1,348 @@
+@font-face {
+  font-family: "Commit Mono";
+  src: url("/fonts/commit-mono-vf.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+/* sptui's default theme */
+:root {
+  --bg: #101216;
+  --text: #e4e6eb;
+  --muted: #9aa0a9;
+  --faint: #474c55;
+  --accent: #1ed760;
+  --purple: #b18cff;
+  --on-accent: #0d1014;
+  --line: 2px;
+  --mono: "Commit Mono", ui-monospace, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+  color: var(--text);
+  font: 450 14px/1.7 var(--mono);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 0 32px;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+:focus-visible {
+  outline: var(--line) solid var(--accent);
+  outline-offset: 3px;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* The top bar, as in the app: the name, its spectrum, and links. */
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 24px 0;
+}
+
+.pill {
+  padding: 0 8px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+}
+
+.pill:hover {
+  text-decoration: none;
+}
+
+/* One cell per bar, like the app's ▁▂▃▄▅▆▇█. */
+.spectrum {
+  display: flex;
+  align-items: flex-end;
+  height: 1.15em;
+}
+
+.spectrum i {
+  width: 0.6em;
+  background: var(--accent);
+}
+
+.top nav {
+  margin-left: auto;
+  display: flex;
+  gap: 20px;
+}
+
+.top nav a {
+  color: var(--muted);
+}
+
+.top nav a:hover {
+  color: var(--text);
+}
+
+/* Text */
+
+main {
+  padding-top: 32px;
+}
+
+h1 {
+  margin: 0 0 6px;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.lede {
+  margin: 0 0 36px;
+  color: var(--muted);
+}
+
+.install {
+  margin-top: 22px;
+}
+
+.install pre {
+  padding: 20px 18px 16px;
+}
+
+.install pre code {
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* The systems, as tabs in the border, picked like the app's search tabs. */
+.tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.tabs button,
+.copy {
+  padding: 0 6px;
+  border: 0;
+  background: var(--bg);
+  color: var(--muted);
+  font: inherit;
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+.tabs button:hover,
+.copy:hover {
+  color: var(--text);
+}
+
+.tabs button[aria-selected="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+}
+
+.copy {
+  position: absolute;
+  top: -0.85em;
+  right: 14px;
+}
+
+.note {
+  margin: 10px 0 48px;
+  color: var(--muted);
+}
+
+/* Headings are drawn like the app's shelves: a label and a rule. */
+h2 {
+  display: flex;
+  align-items: center;
+  gap: 1ch;
+  margin: 64px 0 16px;
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+h2::after {
+  content: "";
+  flex: 1;
+  height: var(--line);
+  background: var(--faint);
+}
+
+p {
+  margin: 0 0 16px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+code {
+  font-family: var(--mono);
+  color: var(--purple);
+}
+
+/* Panels, like the app's: a rounded box with its title in the border. */
+
+.panel {
+  position: relative;
+  margin: 0;
+  border: var(--line) solid var(--faint);
+  border-radius: 10px;
+}
+
+.panel.focused {
+  border-color: var(--accent);
+}
+
+.panel-title {
+  position: absolute;
+  top: -0.85em;
+  left: 14px;
+  padding: 0 6px;
+  background: var(--bg);
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.focused > .panel-title {
+  color: var(--accent);
+}
+
+.panel-title.tabs {
+  padding: 0 2px;
+}
+
+#app {
+  padding: 16px 12px 12px;
+}
+
+#app canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 112 / 68;
+}
+
+pre {
+  margin: 0;
+  padding: 14px 16px 12px;
+  overflow-x: auto;
+  font: inherit;
+  line-height: 1.8;
+}
+
+pre code {
+  color: var(--text);
+}
+
+/* The preview's views, picked like items in the app's sidebar. */
+
+.views {
+  display: flex;
+  gap: 4px;
+  margin-top: 16px;
+}
+
+.views button {
+  padding: 0 8px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.views button:hover {
+  color: var(--text);
+}
+
+.views button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+}
+
+/* Features, as rows like the app's lists. */
+
+.features {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.features li {
+  display: grid;
+  grid-template-columns: 18ch 1fr;
+  gap: 2ch;
+  padding: 3px 0;
+}
+
+.features b {
+  font-weight: 600;
+}
+
+.features span {
+  color: var(--muted);
+}
+
+/* The footer, like the app's: keys that work here. */
+
+.hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1ch;
+  margin-top: 72px;
+  padding: 20px 0 28px;
+  color: var(--muted);
+}
+
+.hints > * + *::before {
+  content: "·";
+  margin-right: 1ch;
+  color: var(--faint);
+}
+
+.hints a {
+  color: inherit;
+}
+
+.hints b {
+  color: var(--text);
+}
+
+@media (max-width: 600px) {
+  body {
+    padding: 0 16px;
+  }
+
+  html {
+    font-size: 13px;
+  }
+
+  .features li {
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding: 4px 0;
+  }
+}

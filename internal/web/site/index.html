@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>sptui</title>
+    <meta name="description" content="Spotify in your terminal." />
+    <link rel="preload" href="/fonts/commit-mono-vf.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/screen.js" defer></script>
+    <script src="/install.js" defer></script>
+    <script src="/spectrum.js" defer></script>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta property="og:title" content="sptui" />
+    <meta property="og:description" content="Spotify in your terminal." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+  </head>
+  <body>
+    <header class="top">
+      <a href="/" class="pill">sptui</a>
+      <span class="spectrum" aria-hidden="true"></span>
+      <nav>
+        <a href="https://github.com/kyledickey/sptui">github</a>
+      </nav>
+    </header>
+
+    <main>
+      <h1>Spotify in your terminal.</h1>
+      <p class="lede">A fast, keyboard-driven Spotify client that plays music itself. No Spotify app needed.</p>
+
+      <div class="panel focused install">
+        <div class="panel-title tabs" role="tablist" aria-label="System">
+          <button role="tab" data-os="macos">macOS</button>
+          <button role="tab" data-os="arch">Arch</button>
+          <button role="tab" data-os="debian">Debian / Ubuntu</button>
+        </div>
+        <button class="copy">copy</button>
+        <pre data-os="macos"><code>brew install libogg libvorbis flac mpg123
+go install github.com/kyledickey/sptui/cmd/sptui@latest</code></pre>
+        <pre data-os="arch" hidden><code>sudo pacman -S libogg libvorbis flac mpg123 alsa-lib
+go install github.com/kyledickey/sptui/cmd/sptui@latest</code></pre>
+        <pre data-os="debian" hidden><code>sudo apt install libogg-dev libvorbis-dev libflac-dev libmpg123-dev libasound2-dev
+go install github.com/kyledickey/sptui/cmd/sptui@latest</code></pre>
+      </div>
+      <p class="note">Then run <code>sptui</code>. Needs Go and Spotify Premium.</p>
+
+      <figure id="app" class="panel">
+        <figcaption class="panel-title" data-caption>sptui -demo</figcaption>
+        <canvas role="img" aria-label="sptui running on made-up music"></canvas>
+      </figure>
+      <div class="views" role="group" aria-label="Show">
+        <button data-show="home" data-key="h">home</button>
+        <button data-show="playing" data-key="o">now playing</button>
+        <button data-show="intro" data-key="i">intro</button>
+      </div>
+
+      <h2>What it does</h2>
+      <ul class="features">
+        <li><b>Spotify Connect</b><span>shows up as a device, so your phone can drive it</span></li>
+        <li><b>Synced lyrics</b><span>scroll along with the song</span></li>
+        <li><b>Radio and DJ X</b><span>start a station from a song, or let the DJ pick</span></li>
+        <li><b>Album art</b><span>real images in kitty and Ghostty, pixels everywhere else</span></li>
+        <li><b>Podcasts</b><span>shows how far you got in each episode</span></li>
+        <li><b>Offline cache</b><span>opens instantly, and keeps working when Spotify is busy</span></li>
+      </ul>
+    </main>
+
+    <footer class="hints">
+      <span><b>h</b> home</span>
+      <span><b>o</b> now playing</span>
+      <span><b>i</b> intro</span>
+      <a href="https://github.com/kyledickey/sptui"><b>g</b> github</a>
+    </footer>
+  </body>
+</html>
