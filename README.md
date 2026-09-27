@@ -35,7 +35,7 @@ _these are the only OSes I've tested on, others probably work_
 Then:
 
 ```sh
-go install ./cmd/sptui
+go install github.com/kyledickey/sptui/cmd/sptui@latest
 sptui
 ```
 
