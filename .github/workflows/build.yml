@@ -3,49 +3,48 @@
 name: build
 
 on:
-  workflow_call:
-    inputs:
-      version:
-        type: string
-        default: dev
+    workflow_call:
+        inputs:
+            version:
+                type: string
+                default: dev
+            targets:
+                description: JSON list of the targets to build
+                type: string
+                default: '["linux_amd64", "linux_arm64", "darwin_arm64", "darwin_amd64"]'
 
 jobs:
-  build:
-    name: build (${{ matrix.target }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Debian stable's glibc, so the binaries run on anything newer.
-          - target: linux_amd64
-            runs-on: ubuntu-latest
-            container: debian:bookworm
-          - target: linux_arm64
-            runs-on: ubuntu-24.04-arm
-            container: debian:bookworm
-          - target: darwin_arm64
-            runs-on: macos-latest
-          - target: darwin_amd64
-            runs-on: macos-15-intel
-    runs-on: ${{ matrix.runs-on }}
-    container: ${{ matrix.container }}
-    steps:
-      - name: Build tools (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          apt-get update -q
-          apt-get install -y -q --no-install-recommends ca-certificates curl gcc libc6-dev make bzip2 pkg-config \
-            libogg-dev libvorbis-dev libflac-dev libasound2-dev
-      - name: Build tools (macOS)
-        if: runner.os == 'macOS'
-        run: brew install --quiet libogg libvorbis flac mpg123 pkgconf
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-      - run: .github/scripts/build.sh "${{ inputs.version }}"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sptui_${{ matrix.target }}
-          path: dist/sptui_${{ matrix.target }}.tar.gz
-          if-no-files-found: error
+    build:
+        name: build (${{ matrix.target }})
+        strategy:
+            fail-fast: false
+            matrix:
+                target: ${{ fromJSON(inputs.targets) }}
+        runs-on: >-
+            ${{ fromJSON('{
+              "linux_amd64": "ubuntu-latest",
+              "linux_arm64": "ubuntu-24.04-arm",
+              "darwin_arm64": "macos-latest",
+              "darwin_amd64": "macos-15-intel"
+            }')[matrix.target] }}
+        container: ${{ startsWith(matrix.target, 'linux') && 'debian:bookworm' || '' }}
+        steps:
+            - name: Build tools (Linux)
+              if: runner.os == 'Linux'
+              run: |
+                  apt-get update -q
+                  apt-get install -y -q --no-install-recommends ca-certificates curl gcc libc6-dev make bzip2 pkg-config \
+                    libogg-dev libvorbis-dev libflac-dev libasound2-dev
+            - name: Build tools (macOS)
+              if: runner.os == 'macOS'
+              run: brew install --quiet libogg libvorbis flac mpg123 pkgconf
+            - uses: actions/checkout@v5
+            - uses: actions/setup-go@v6
+              with:
+                  go-version-file: go.mod
+            - run: .github/scripts/build.sh "${{ inputs.version }}"
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: sptui_${{ matrix.target }}
+                  path: dist/sptui_${{ matrix.target }}.tar.gz
+                  if-no-files-found: error

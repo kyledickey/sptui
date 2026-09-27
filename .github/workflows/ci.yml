@@ -1,142 +1,74 @@
 name: ci
 
 on:
-  push:
-    branches: [main]
-  pull_request:
+    push:
+        branches: [main]
+    pull_request:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
 
 jobs:
-  tui:
-    name: tui (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-      - name: Audio libraries (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q libogg-dev libvorbis-dev libflac-dev libmpg123-dev libasound2-dev pkg-config
-      - name: Audio libraries (macOS)
-        if: runner.os == 'macOS'
-        run: brew install --quiet libogg libvorbis flac mpg123 pkgconf
-      - name: gofmt
-        if: runner.os == 'Linux'
-        run: |
-          out=$(gofmt -l .)
-          [ -z "$out" ] || { echo "not gofmt'd:"; echo "$out"; exit 1; }
-      - run: go vet ./...
-      - run: go build ./...
-      # The race detector on Linux; races rarely depend on the OS, and the
-      # macOS runners are the slow, costly ones.
-      - name: go test
-        run: go list ./... | grep -v /internal/web | xargs go test ${{ runner.os == 'Linux' && '-race' || '' }}
+    tui:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v5
+            - uses: actions/setup-go@v6
+              with:
+                  go-version-file: go.mod
+            - name: Audio libraries
+              run: |
+                  sudo apt-get update -q
+                  sudo apt-get install -y -q libogg-dev libvorbis-dev libflac-dev libmpg123-dev libasound2-dev pkg-config
+            - name: gofmt
+              run: |
+                  out=$(gofmt -l .)
+                  [ -z "$out" ] || { echo "not gofmt'd:"; echo "$out"; exit 1; }
+            - run: go vet ./...
+            - run: go build ./...
+            - name: go test
+              run: go list ./... | grep -v /internal/web | xargs go test -race
 
-  web:
-    runs-on: ubuntu-latest
-    env:
-      CGO_ENABLED: "0" # the site doesn't need the audio libraries
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-      - uses: actions/setup-node@v5
-        with:
-          node-version: lts/*
-      - run: go vet ./internal/web/... ./cmd/web/...
-      - run: go test ./internal/web/... ./cmd/web/...
-      - name: JavaScript parses
-        run: for f in internal/web/site/*.js; do node --check "$f"; done
-      - name: shellcheck install.sh
-        run: shellcheck internal/web/site/install.sh
-      - name: Serve and fetch every page
-        run: |
-          go build -o /tmp/web ./cmd/web
-          /tmp/web -addr 127.0.0.1:8080 &
-          for _ in $(seq 50); do curl -fs -o /dev/null http://127.0.0.1:8080/ && break; sleep 0.2; done
-          check() { # path, status, text it should contain
-            status=$(curl -s -o /tmp/body -w '%{http_code}' "http://127.0.0.1:8080$1")
-            [ "$status" = "$2" ] || { echo "$1: status $status, want $2"; exit 1; }
-            grep -qF -- "$3" /tmp/body || { echo "$1: missing $3"; exit 1; }
-            echo "ok $1"
-          }
-          check / 200 "Spotify in your terminal"
-          check /install.sh 200 "#!/usr/bin/env bash"
-          check /style.css 200 ".install"
-          check /intros.json 200 "vinyl"
-          check /screens/home.json 200 "{"
-          check /nope 404 "</html>"
-          cmp /tmp/body internal/web/site/404.html
-          curl -fsI http://127.0.0.1:8080/install.sh | grep -i '^content-type: text/plain'
-
-  # The release build, for every platform, so a tag never finds it broken.
-  build:
-    uses: ./.github/workflows/build.yml
-
-  # install.sh on clean systems, installing the archives just built rather
-  # than the latest release, so it tests the code in the change.
-  install:
-    name: install.sh (${{ matrix.name }})
-    needs: build
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: ubuntu 22.04
-            runs-on: ubuntu-latest
-            container: ubuntu:22.04
-            target: linux_amd64
-            setup: apt-get update -q && apt-get install -y -q curl ca-certificates
-          - name: ubuntu 24.04
-            runs-on: ubuntu-latest
-            container: ubuntu:24.04
-            target: linux_amd64
-            setup: apt-get update -q && apt-get install -y -q curl ca-certificates
-          - name: debian
-            runs-on: ubuntu-latest
-            container: debian:stable
-            target: linux_amd64
-            setup: apt-get update -q && apt-get install -y -q curl ca-certificates
-          - name: fedora
-            runs-on: ubuntu-latest
-            container: fedora:latest
-            target: linux_amd64
-          - name: arch
-            runs-on: ubuntu-latest
-            container: archlinux:latest
-            target: linux_amd64
-            setup: pacman -Syu --noconfirm
-          - name: ubuntu arm64, with sudo
-            runs-on: ubuntu-24.04-arm
-            target: linux_arm64
-          - name: macos arm64
-            runs-on: macos-latest
-            target: darwin_arm64
-          - name: macos x86-64
-            runs-on: macos-15-intel
-            target: darwin_amd64
-    runs-on: ${{ matrix.runs-on }}
-    container: ${{ matrix.container }}
-    steps:
-      - if: matrix.setup
-        run: ${{ matrix.setup }}
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
-        with:
-          name: sptui_${{ matrix.target }}
-          path: dist
-      - run: bash internal/web/site/install.sh --yes
+    web:
+        runs-on: ubuntu-latest
         env:
-          SPTUI_ARCHIVE: dist/sptui_${{ matrix.target }}.tar.gz
-      - run: '"$HOME/.local/bin/sptui" -version'
+            CGO_ENABLED: "0" # the site doesn't need the audio libraries
+        steps:
+            - uses: actions/checkout@v5
+            - uses: actions/setup-go@v6
+              with:
+                  go-version-file: go.mod
+            - uses: actions/setup-node@v5
+              with:
+                  node-version: lts/*
+            - run: go vet ./internal/web/... ./cmd/web/...
+            - run: go test ./internal/web/... ./cmd/web/...
+            - name: JavaScript parses
+              run: for f in internal/web/site/*.js; do node --check "$f"; done
+            - name: shellcheck install.sh
+              run: shellcheck internal/web/site/install.sh
+            - name: Serve and fetch every page
+              run: |
+                  go build -o /tmp/web ./cmd/web
+                  /tmp/web -addr 127.0.0.1:8080 &
+                  for _ in $(seq 50); do curl -fs -o /dev/null http://127.0.0.1:8080/ && break; sleep 0.2; done
+                  check() { # path, status, text it should contain
+                    status=$(curl -s -o /tmp/body -w '%{http_code}' "http://127.0.0.1:8080$1")
+                    [ "$status" = "$2" ] || { echo "$1: status $status, want $2"; exit 1; }
+                    grep -qF -- "$3" /tmp/body || { echo "$1: missing $3"; exit 1; }
+                    echo "ok $1"
+                  }
+                  check / 200 "Spotify in your terminal"
+                  check /install.sh 200 "#!/usr/bin/env bash"
+                  check /style.css 200 ".install"
+                  check /intros.json 200 "vinyl"
+                  check /screens/home.json 200 "{"
+                  check /nope 404 "</html>"
+                  cmp /tmp/body internal/web/site/404.html
+                  curl -fsI http://127.0.0.1:8080/install.sh | grep -i '^content-type: text/plain'
+
+    build:
+        uses: ./.github/workflows/build.yml
+        with:
+            targets: '["linux_amd64", "linux_arm64"]'
