@@ -10,9 +10,9 @@ import (
 	"github.com/charmbracelet/x/ansi/kitty"
 )
 
-// Kitty image IDs are carried in a 256-colour foreground, which survives
-// every colour profile unchanged. IDs below 16 are avoided because those are
-// the basic colours, which renderers may rewrite as 30–37.
+// Kitty image IDs are carried in a 256-color foreground, which survives
+// every color profile unchanged. IDs below 16 are avoided because those are
+// the basic colors, which renderers may rewrite as 30–37.
 const (
 	MinID = 16
 	MaxID = 255

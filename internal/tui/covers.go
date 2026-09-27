@@ -17,7 +17,7 @@ import (
 const (
 	coverSource = 300 // preferred source image width in pixels
 	maxImages   = 48  // decoded images kept in memory
-	thumbRows   = 3   // cover size in the player bar
+	thumbRows   = 2   // cover size in the player bar
 )
 
 // coverKey is a cover drawn at a particular size.
@@ -56,10 +56,11 @@ func (m *Model) coverCols(rows int) int {
 	return max(1, (rows*h+w/2)/w)
 }
 
-// requestCellSize asks the terminal for its cell size in pixels; the answer
-// arrives as a uv.CellSizeEvent.
+// requestCellSize asks the terminal for its cell size in pixels (xterm's
+// window operation 16); the answer arrives as a uv.CellSizeEvent.
 func requestCellSize() tea.Cmd {
-	return tea.Raw(ansi.WindowOp(ansi.RequestCellSizeWinOp))
+	const reportCellSize = 16
+	return tea.Raw(ansi.WindowOp(reportCellSize))
 }
 
 // setCellSize records the terminal's cell size and redraws covers that were
@@ -124,9 +125,31 @@ func (m *Model) wantedCovers() []coverKey {
 	if url := m.thumbURL(); url != "" {
 		want = append(want, coverKey{url, m.coverCols(thumbRows), thumbRows})
 	}
-	if p := m.current(); p != nil && p.cover != "" {
-		if rows := m.pageCoverRows(); rows > 0 {
+	p := m.current()
+	if p != nil && p.cover != "" {
+		if rows := m.heroRows(p); rows > 0 {
 			want = append(want, coverKey{p.cover, m.coverCols(rows), rows})
+		}
+	}
+	if p != nil && p.home {
+		for _, vi := range m.homeShownTiles(p, m.contentWidth()) {
+			if url := p.rows[p.visible[vi]].cover(); url != "" {
+				rows := m.homeTileRows()
+				want = append(want, coverKey{url, m.coverCols(rows), rows})
+			}
+		}
+	}
+	if p != nil && p.grid {
+		for _, vi := range m.gridShown(p) {
+			if url := p.rows[p.visible[vi]].cover(); url != "" {
+				want = append(want, coverKey{url, m.coverCols(gridTileRows), gridTileRows})
+			}
+		}
+	}
+	if p != nil && m.showCard(p) {
+		r, _ := topResult(p)
+		if url := r.cover(); url != "" {
+			want = append(want, coverKey{url, m.coverCols(cardRows - 2), cardRows - 2})
 		}
 	}
 	return want
@@ -138,19 +161,7 @@ func (m *Model) thumbURL() string {
 	if t == nil || m.width < minWidth {
 		return ""
 	}
-	return spotify.CoverURL(t.Album.Images, coverSource)
-}
-
-// pageCoverRows is how tall a page's cover is, or 0 if there's no room.
-func (m *Model) pageCoverRows() int {
-	switch h := m.bodyHeight(); {
-	case m.covers.mode == art.Off || h < 18:
-		return 0
-	case h < 26:
-		return 5
-	default:
-		return 7
-	}
+	return spotify.CoverURL(t.Cover(), coverSource)
 }
 
 // syncCovers fetches and prepares covers that are wanted but missing, and

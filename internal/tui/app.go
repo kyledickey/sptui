@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
+
 	"github.com/kyledickey/sptui/internal/art"
 	"github.com/kyledickey/sptui/internal/config"
 	"github.com/kyledickey/sptui/internal/spotify"
@@ -37,7 +39,9 @@ type Options struct {
 	// KeepAwake is told whether the computer should stay awake, following
 	// the keep-awake setting. Nil does nothing (see package awake).
 	KeepAwake func(on bool)
-	Log       *slog.Logger // required
+	// Intro plays the startup animation Config names, if any.
+	Intro bool
+	Log   *slog.Logger // required
 }
 
 // Outcome says why the UI exited.
@@ -96,12 +100,22 @@ type Model struct {
 	remoteChosen bool // the user moved playback to another device on purpose
 	menu         *menu
 	showHelp     bool
+	helpLayer    int    // the help keyboard's layer: plain, shift or ctrl
+	helpPicked   string // the key last pressed on the help keyboard
 	status       status
 
 	spinner  spinner.Model
 	spinning bool
 	covers   covers
-	lyrics   lyricsState
+	swatches swatches // cover colors
+
+	intro *introPlay // the startup animation, while it plays
+	bg    string     // terminal background as hex, once known
+
+	accentShown string    // the accent the styles were built with
+	selected    string    // which row is selected, to notice when it changes
+	selectedAt  time.Time // when it did, for scrolling its title
+	lyrics      lyricsState
 	// lyricsFound remembers answers (including "none") for this session.
 	lyricsFound map[string]lyricsState
 
@@ -156,6 +170,13 @@ type (
 	}
 )
 
+// Tests change these: the cursor's blinking never ends, and the spinner
+// would hold up every step.
+var (
+	blinkCursor    = true
+	loadingSpinner = spinner.MiniDot
+)
+
 // New returns the root model.
 func New(b Backend, opts Options) *Model {
 	in := textinput.New()
@@ -169,14 +190,18 @@ func New(b Backend, opts Options) *Model {
 		sidebar:     newSidebar(),
 		input:       in,
 		focus:       focusMain,
-		spinner:     spinner.New(spinner.WithSpinner(spinner.MiniDot)),
+		spinner:     spinner.New(spinner.WithSpinner(loadingSpinner)),
 		covers:      newCovers(artMode(opts.Config)),
+		swatches:    newSwatches(),
 		cfg:         opts.Config,
 		lyricsFound: map[string]lyricsState{},
 		dark:        true,
 	}
 	m.player.every = cmp.Or(opts.PollInterval, 5*time.Second)
 	m.setTheme(true)
+	if opts.Intro {
+		m.playIntro(opts.Config.Theme.Intro, false) // Init starts the ticks
+	}
 	return m
 }
 
@@ -191,12 +216,18 @@ func artMode(cfg config.Config) art.Mode {
 
 func (m *Model) setTheme(dark bool) {
 	m.dark = dark
-	m.st = newStyles(m.cfg.Theme.Accent, dark)
+	m.accentShown = m.accentHex()
+	accent := m.accentShown
+	if m.cfg.Theme.Accent == AccentFromCover {
+		accent = readable(accent, dark)
+	}
+	m.st = newStyles(accent, dark)
 	m.spinner.Style = m.st.status
 	s := textinput.DefaultStyles(dark)
 	s.Focused.Text = m.st.row
 	s.Focused.Placeholder = m.st.rowMuted
 	s.Cursor.Color = m.st.accent
+	s.Cursor.Blink = blinkCursor
 	m.input.SetStyles(s)
 }
 
@@ -209,15 +240,38 @@ func (m *Model) Init() tea.Cmd {
 		tick(),
 		tea.RequestBackgroundColor,
 		requestCellSize(),
+		pick(m.intro != nil, introTick(), nil),
 	)
 }
 
 // Update handles a message and returns the next command. Afterwards it
 // brings cover art in line with what's on screen.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if cmd, ok := m.introUpdate(msg); ok {
+		return m, cmd
+	}
 	cmd := m.update(msg)
 	m.syncAwake()
-	return m, tea.Batch(cmd, m.syncCovers(), m.syncLyrics())
+	m.syncSelected()
+	m.syncAccent()
+	if m.intro != nil {
+		return m, cmd // covers wait until the app is on screen
+	}
+	return m, tea.Batch(cmd, m.syncCovers(), m.syncSwatches(), m.syncLyrics())
+}
+
+// syncSelected notes when the selected row changes, so a long title under
+// the cursor starts scrolling from its beginning.
+func (m *Model) syncSelected() {
+	sel := ""
+	if p := m.current(); p != nil {
+		if r, ok := p.selected(); ok {
+			sel = fmt.Sprint(p.id, r.uri(), p.cursor)
+		}
+	}
+	if sel != m.selected {
+		m.selected, m.selectedAt = sel, time.Now()
+	}
 }
 
 func (m *Model) update(msg tea.Msg) tea.Cmd {
@@ -229,6 +283,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case uv.CellSizeEvent:
 		return m.setCellSize(msg.Width, msg.Height)
 	case tea.BackgroundColorMsg:
+		m.bg = hexOfColor(msg.Color)
 		m.setTheme(msg.IsDark())
 		return nil
 	case tea.KeyPressMsg:
@@ -254,6 +309,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return m.setLyrics(msg)
 	case lyricsRetryMsg:
 		return m.retryLyrics(msg)
+	case swatchMsg:
+		m.handleSwatch(msg)
+		return nil
 	}
 	return m.handleData(msg)
 }
@@ -289,10 +347,13 @@ func (m *Model) handleData(msg tea.Msg) tea.Cmd {
 		if !m.status.until.IsZero() && now.After(m.status.until) {
 			m.status = status{}
 		}
-		// Tick faster while lyrics follow the song.
+		// Tick faster while lyrics follow the song, and while things move.
 		next := tickEvery
 		if m.showingNowPlaying() {
 			next = min(next, lyricsTick)
+		}
+		if m.animating() {
+			next = min(next, animTick)
 		}
 		cmds := []tea.Cmd{tickAfter(next)}
 		if m.player.due(now) {
@@ -449,6 +510,7 @@ func (m *Model) setPlayback(msg playbackMsg, now time.Time) tea.Cmd {
 		return nil
 	}
 	m.log.Debug("now playing", "track", t.Name, "artist", t.ArtistNames())
+	m.player.since = now
 	var cmds []tea.Cmd
 	if t.URI != m.player.likedURI {
 		m.player.likedURI, m.player.liked = t.URI, false
@@ -467,14 +529,20 @@ func (m *Model) handleSaved(msg savedMsg) tea.Cmd {
 	}
 	name := msg.r.name()
 	var text string
+	episode := msg.r.kind == kindTrack && msg.r.track.IsEpisode()
+	follows := msg.r.kind == kindArtist || msg.r.kind == kindShow
 	switch {
+	case episode && msg.saved:
+		text = "Saved “" + name + "” to Your Episodes"
+	case episode:
+		text = "Removed “" + name + "” from Your Episodes"
 	case msg.r.kind == kindTrack && msg.saved:
 		text = "Liked “" + name + "”"
 	case msg.r.kind == kindTrack:
 		text = "Removed “" + name + "” from Liked Songs"
-	case msg.r.kind == kindArtist && msg.saved:
+	case follows && msg.saved:
 		text = "Following " + name
-	case msg.r.kind == kindArtist:
+	case follows:
 		text = "Unfollowed " + name
 	case msg.saved:
 		text = "Saved “" + name + "” to your library"
@@ -486,9 +554,12 @@ func (m *Model) handleSaved(msg savedMsg) tea.Cmd {
 		return m.reloadPlaylists() // followed playlists appear in the sidebar
 	}
 	if msg.r.kind == kindTrack && !msg.saved {
-		liked := spotify.LikedSongsURI(m.me.ID)
+		saved := spotify.LikedSongsURI(m.me.ID)
+		if episode {
+			saved = spotify.YourEpisodesURI(m.me.ID)
+		}
 		for _, p := range m.stack {
-			if p.context == liked {
+			if p.context == saved {
 				p.remove(msg.r.uri())
 			}
 		}
@@ -503,11 +574,10 @@ func (m *Model) handleSaved(msg savedMsg) tea.Cmd {
 // pause for other errors, since everything else depends on these loads.
 func retryLater(err error, cmd tea.Cmd) tea.Cmd {
 	wait := 5 * time.Second
-	var apiErr *spotify.Error
-	if errors.As(err, &apiErr) && apiErr.RetryAfter > 0 {
+	if apiErr, ok := errors.AsType[*spotify.Error](err); ok && apiErr.RetryAfter > 0 {
 		wait = apiErr.RetryAfter
 	}
-	return tea.Tick(wait, func(time.Time) tea.Msg { return cmd() })
+	return schedule(wait, func(time.Time) tea.Msg { return cmd() })
 }
 
 func (m *Model) setStatus(text string, isErr bool) {
@@ -563,6 +633,9 @@ func (m *Model) push(p *page) tea.Cmd {
 // openNav replaces the navigation stack with the sidebar item at i.
 func (m *Model) openNav(i int) tea.Cmd {
 	it := m.sidebar.items[i]
+	if it.play != nil && m.me.ID != "" {
+		return it.play(m)
+	}
 	if it.open == nil || m.me.ID == "" {
 		return nil
 	}
@@ -590,13 +663,19 @@ func (m *Model) loadMore(p *page) tea.Cmd {
 	id, offset, load, fresh := p.id, max(p.next, 0), p.load, p.fresh
 	m.log.Debug("load page", "page", p.title, "offset", offset, "fresh", fresh)
 	return tea.Batch(m.startSpinner(), m.call(func(ctx context.Context) tea.Msg {
-		if fresh {
-			ctx = spotify.WithFresh(ctx)
-		}
 		var origin spotify.Origin
-		c, err := load(spotify.WithOrigin(ctx, &origin), offset)
+		c, err := load(libraryContext(ctx, fresh, &origin), offset)
 		return pageMsg{id: id, chunk: c, origin: origin, err: err}
 	}))
+}
+
+// libraryContext prepares ctx for a library read: skipping caches when
+// fresh is set, and noting in origin where the answer came from.
+func libraryContext(ctx context.Context, fresh bool, origin *spotify.Origin) context.Context {
+	if fresh {
+		ctx = spotify.WithFresh(ctx)
+	}
+	return spotify.WithOrigin(ctx, origin)
 }
 
 // reload refetches p from Spotify, skipping caches.
@@ -624,11 +703,8 @@ func (m *Model) loadMe() tea.Cmd {
 func (m *Model) loadPlaylists(offset int) tea.Cmd {
 	gen, fresh := m.playlistGen, m.playlistGen > 0 // any reload skips caches
 	return m.call(func(ctx context.Context) tea.Msg {
-		if fresh {
-			ctx = spotify.WithFresh(ctx)
-		}
 		var origin spotify.Origin
-		pg, err := m.backend.Playlists(spotify.WithOrigin(ctx, &origin), offset)
+		pg, err := m.backend.Playlists(libraryContext(ctx, fresh, &origin), offset)
 		return playlistsMsg{gen: gen, offset: offset, page: pg, origin: origin, err: err}
 	})
 }
@@ -666,7 +742,7 @@ func (m *Model) openSearch() tea.Cmd {
 
 func (m *Model) openFilter() tea.Cmd {
 	p := m.current()
-	if p == nil {
+	if p == nil || p.home {
 		return nil
 	}
 	m.inputMode = inputFilter
@@ -698,7 +774,7 @@ func (m *Model) updateInput(msg tea.Msg) tea.Cmd {
 	case inputSearch:
 		m.searchSeq++
 		seq := m.searchSeq
-		return tea.Batch(cmd, tea.Tick(searchDebounce, func(time.Time) tea.Msg { return debounceMsg{seq} }))
+		return tea.Batch(cmd, schedule(searchDebounce, func(time.Time) tea.Msg { return debounceMsg{seq} }))
 	}
 	return cmd
 }
@@ -714,11 +790,8 @@ func (m *Model) runSearch(q string) tea.Cmd {
 	id, fresh := p.id, p.fresh
 	m.log.Debug("search", "query", q)
 	return tea.Batch(m.startSpinner(), m.call(func(ctx context.Context) tea.Msg {
-		if fresh {
-			ctx = spotify.WithFresh(ctx)
-		}
 		var origin spotify.Origin
-		res, err := m.backend.Search(spotify.WithOrigin(ctx, &origin), q)
+		res, err := m.backend.Search(libraryContext(ctx, fresh, &origin), q)
 		return searchMsg{id: id, query: q, rows: searchRows(res), origin: origin, err: err}
 	}))
 }

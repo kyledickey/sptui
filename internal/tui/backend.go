@@ -34,7 +34,11 @@ type Library interface {
 	TopTracks(ctx context.Context) ([]spotify.Track, error)
 	PlaylistTracks(ctx context.Context, playlistID string, offset int) (spotify.Page[spotify.Track], error)
 	AlbumTracks(ctx context.Context, album spotify.Album, offset int) (spotify.Page[spotify.Track], error)
+	Artist(ctx context.Context, id string) (spotify.Artist, error)
 	ArtistAlbums(ctx context.Context, artistID string, offset int) (spotify.Page[spotify.Album], error)
+	SavedShows(ctx context.Context, offset int) (spotify.Page[spotify.Show], error)
+	SavedEpisodes(ctx context.Context, offset int) (spotify.Page[spotify.Track], error)
+	ShowEpisodes(ctx context.Context, show spotify.Show, offset int) (spotify.Page[spotify.Track], error)
 	Search(ctx context.Context, query string) (spotify.SearchResults, error)
 	InLibrary(ctx context.Context, uris []string) ([]bool, error)
 	SaveToLibrary(ctx context.Context, uris []string) error

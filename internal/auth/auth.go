@@ -28,6 +28,8 @@ import (
 	"time"
 
 	"golang.org/x/oauth2"
+
+	"github.com/kyledickey/sptui/internal/atomicfile"
 )
 
 // App is a Spotify app that sptui logs in through.
@@ -37,6 +39,9 @@ type App struct {
 	RedirectURI string // registered redirect; "" means any free port on 127.0.0.1
 	Scopes      []string
 }
+
+// scope is the app's scopes as OAuth writes them: space-separated.
+func (app App) scope() string { return strings.Join(app.Scopes, " ") }
 
 // Streaming is Spotify's own desktop client, which librespot uses to log in
 // speakers. Its Web API rate limit is shared by every librespot-based app and
@@ -72,7 +77,7 @@ func WebAPIWith(clientID, redirectURI string) App {
 			"user-read-currently-playing", "user-read-recently-played", "user-top-read",
 			"user-library-read", "user-library-modify", "user-follow-read", "user-follow-modify",
 			"playlist-read-private", "playlist-read-collaborative", "playlist-modify-public",
-			"playlist-modify-private",
+			"playlist-modify-private", "user-read-playback-position",
 		},
 	}
 }
@@ -150,14 +155,22 @@ func Prompt(out io.Writer, purpose, url string) {
 	_ = openBrowser(url)
 }
 
+// OpenBrowser opens u in the user's browser.
+func OpenBrowser(u string) error { return openBrowser(u) }
+
 // Pending is a login waiting for the user to approve it in the browser.
 type Pending struct {
-	URL  string // the page to visit
-	wait func(ctx context.Context) (*oauth2.Token, error)
+	URL   string // the page to visit
+	wait  func(ctx context.Context) (*oauth2.Token, error)
+	close func()
 }
 
 // Wait waits for the user to approve, then saves and returns the token.
 func (p *Pending) Wait(ctx context.Context) (*oauth2.Token, error) { return p.wait(ctx) }
+
+// Cancel gives up on the login without waiting, freeing its port for
+// another try. Wait does this itself; Cancel is for logins never waited on.
+func (p *Pending) Cancel() { p.close() }
 
 // Start begins a login: it listens for Spotify's redirect and returns the
 // page the user must visit. After approving, the browser is sent to next if
@@ -242,7 +255,11 @@ func (a *Authenticator) Start(next string) (*Pending, error) {
 		a.log.Info("logged in", "purpose", a.app.Purpose, "expires", tok.Expiry)
 		return tok, nil
 	}
-	return &Pending{URL: conf.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier)), wait: wait}, nil
+	return &Pending{
+		URL:   conf.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier)),
+		wait:  wait,
+		close: func() { srv.Close() },
+	}, nil
 }
 
 // Logout deletes the saved token.
@@ -276,7 +293,7 @@ func (a *Authenticator) loadToken() (*oauth2.Token, error) {
 		return nil, fmt.Errorf("parse token: %w", err)
 	}
 	switch {
-	case saved.ClientID != a.app.ClientID || saved.Scopes != strings.Join(a.app.Scopes, " "):
+	case saved.ClientID != a.app.ClientID || saved.Scopes != a.app.scope():
 		return nil, errors.New("saved login is from an older version of sptui")
 	case saved.Token == nil || saved.Token.RefreshToken == "":
 		return nil, errors.New("saved login has no refresh token")
@@ -291,16 +308,11 @@ func (a *Authenticator) saveToken(tok *oauth2.Token) error {
 	if err := os.MkdirAll(filepath.Dir(a.tokenPath), 0o700); err != nil {
 		return err
 	}
-	data, err := json.Marshal(savedLogin{ClientID: a.app.ClientID, Scopes: strings.Join(a.app.Scopes, " "), Token: tok})
+	data, err := json.Marshal(savedLogin{ClientID: a.app.ClientID, Scopes: a.app.scope(), Token: tok})
 	if err != nil {
 		return err
 	}
-	// Write then rename so a crash never leaves a half-written token.
-	tmp := a.tokenPath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, a.tokenPath)
+	return atomicfile.Write(a.tokenPath, data, 0o600)
 }
 
 // savingSource persists the token whenever it is refreshed.
@@ -337,8 +349,8 @@ func (s *savingSource) Token() (*oauth2.Token, error) {
 // Revoked reports whether err means the saved login is no longer valid, as
 // opposed to a temporary failure talking to Spotify.
 func Revoked(err error) bool {
-	var re *oauth2.RetrieveError
-	return errors.As(err, &re) && re.ErrorCode == "invalid_grant"
+	re, ok := errors.AsType[*oauth2.RetrieveError](err)
+	return ok && re.ErrorCode == "invalid_grant"
 }
 
 func randomString() string {

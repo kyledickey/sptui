@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/devgianlu/go-librespot/daemon"
@@ -78,14 +79,24 @@ func (s *Speaker) Playback(ctx context.Context) (*spotify.PlaybackState, error) 
 		return nil, err
 	}
 	t := st.Track
+	if st.ContextUri != nil && *st.ContextUri == spotify.DJURI {
+		s.dj.playing(t.Uri)
+	}
 	track := &spotify.Track{
 		Name:       t.Name,
 		URI:        t.Uri,
 		DurationMS: t.Duration,
 		Album:      spotify.Album{Name: t.AlbumName, ReleaseDate: t.ReleaseDate},
 	}
-	for _, name := range t.ArtistNames {
-		track.Artists = append(track.Artists, spotify.Artist{Name: name})
+	if strings.HasPrefix(t.Uri, "spotify:episode:") {
+		// The player reports an episode's show as both artist and album.
+		track.Type = "episode"
+		track.Show = &spotify.Show{Name: t.AlbumName}
+		track.Album = spotify.Album{}
+	} else {
+		for _, name := range t.ArtistNames {
+			track.Artists = append(track.Artists, spotify.Artist{Name: name})
+		}
 	}
 	if t.AlbumCoverUrl != nil {
 		track.Album.Images = []spotify.Image{{URL: *t.AlbumCoverUrl}}
@@ -139,6 +150,8 @@ func (s *Speaker) Devices(ctx context.Context) ([]spotify.Device, error) {
 func (s *Speaker) Play(ctx context.Context, opts spotify.PlayOptions) error {
 	var play daemon.ApiPlay
 	switch {
+	case opts.ContextURI == spotify.DJURI:
+		return s.playSession(ctx, spotify.DJURI, djSession+spotify.DJURI, s.dj.track())
 	case opts.ContextURI != "":
 		play = daemon.ApiPlay{Uri: opts.ContextURI, SkipToUri: opts.OffsetURI}
 	case len(opts.URIs) > 0:

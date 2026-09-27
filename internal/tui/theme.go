@@ -20,7 +20,10 @@ type styles struct {
 	danger color.Color
 	warn   color.Color
 
-	logo        lipgloss.Style
+	logo        lipgloss.Style // the name, on an accent slab
+	logoEdge    lipgloss.Style // the slab's half-block ends
+	tag         lipgloss.Style // a sidebar heading, on a quiet slab
+	tagEdge     lipgloss.Style
 	crumb       lipgloss.Style
 	crumbActive lipgloss.Style
 
@@ -71,7 +74,10 @@ func newStyles(accentHex string, dark bool) styles {
 	}
 	base := lipgloss.NewStyle()
 
-	s.logo = base.Foreground(s.accent).Bold(true)
+	s.logo = base.Foreground(inkOn(accentHex)).Background(s.accent).Bold(true)
+	s.logoEdge = base.Foreground(s.accent)
+	s.tag = base.Foreground(s.text).Background(s.faint).Bold(true)
+	s.tagEdge = base.Foreground(s.faint)
 	s.crumb = base.Foreground(s.muted)
 	s.crumbActive = base.Foreground(s.text).Bold(true)
 
@@ -104,4 +110,14 @@ func newStyles(accentHex string, dark bool) styles {
 	s.modal = base.Border(lipgloss.RoundedBorder()).BorderForeground(s.accent).Padding(0, 1)
 	s.modalTitle = base.Foreground(s.accent).Bold(true)
 	return s
+}
+
+// inkOn is a text color that reads on a background of hex: near-black on
+// light colors, white on dark ones.
+func inkOn(hex string) color.Color {
+	r, g, b, ok := parseHex(hex)
+	if ok && 0.2126*r+0.7152*g+0.0722*b < 0.5 {
+		return lipgloss.Color("#ffffff")
+	}
+	return lipgloss.Color("#0d1014")
 }

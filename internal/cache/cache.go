@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kyledickey/sptui/internal/atomicfile"
 	"github.com/kyledickey/sptui/internal/spotify"
 	"github.com/kyledickey/sptui/internal/tui"
 )
@@ -109,28 +110,27 @@ func (c *Library) load(path, key string) (value json.RawMessage, saved time.Time
 	return e.Value, e.Saved
 }
 
+// store saves v as the answer for key. A failure only costs a refetch, so
+// it's logged, not returned.
 func (c *Library) store(path, key string, v any) {
-	value, err := json.Marshal(v)
-	if err == nil {
-		var data []byte
-		if data, err = json.Marshal(entry{Key: key, Saved: time.Now(), Value: value}); err == nil {
-			err = writeFile(path, data)
-		}
-	}
-	if err != nil {
+	if err := write(path, key, v); err != nil {
 		c.log.Warn("cache write failed", "what", key, "err", err)
 	}
 }
 
-func writeFile(path string, data []byte) error {
+func write(path, key string, v any) error {
+	value, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(entry{Key: key, Saved: time.Now(), Value: value})
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return atomicfile.Write(path, data, 0o600)
 }
 
 // path names the file for key. Files are grouped by kind so a whole kind can
@@ -201,9 +201,34 @@ func (c *Library) AlbumTracks(ctx context.Context, album spotify.Album, offset i
 	})
 }
 
+func (c *Library) Artist(ctx context.Context, id string) (spotify.Artist, error) {
+	return get(ctx, c, settled, "artist-info", []any{id}, func() (spotify.Artist, error) {
+		return c.Library.Artist(ctx, id)
+	})
+}
+
 func (c *Library) ArtistAlbums(ctx context.Context, id string, offset int) (spotify.Page[spotify.Album], error) {
 	return get(ctx, c, settled, "artist", []any{id, offset}, func() (spotify.Page[spotify.Album], error) {
 		return c.Library.ArtistAlbums(ctx, id, offset)
+	})
+}
+
+func (c *Library) SavedShows(ctx context.Context, offset int) (spotify.Page[spotify.Show], error) {
+	return get(ctx, c, changing, "shows", []any{offset}, func() (spotify.Page[spotify.Show], error) {
+		return c.Library.SavedShows(ctx, offset)
+	})
+}
+
+func (c *Library) SavedEpisodes(ctx context.Context, offset int) (spotify.Page[spotify.Track], error) {
+	return get(ctx, c, changing, "episodes", []any{offset}, func() (spotify.Page[spotify.Track], error) {
+		return c.Library.SavedEpisodes(ctx, offset)
+	})
+}
+
+// ShowEpisodes stays fresh as long as a playlist: new episodes come often.
+func (c *Library) ShowEpisodes(ctx context.Context, show spotify.Show, offset int) (spotify.Page[spotify.Track], error) {
+	return get(ctx, c, changing, "show", []any{show.ID, offset}, func() (spotify.Page[spotify.Track], error) {
+		return c.Library.ShowEpisodes(ctx, show, offset)
 	})
 }
 
@@ -290,6 +315,10 @@ func kindsFor(uris []string) []string {
 			kinds = append(kinds, "artists")
 		case strings.HasPrefix(u, "spotify:playlist:"):
 			kinds = append(kinds, "playlists")
+		case strings.HasPrefix(u, "spotify:show:"):
+			kinds = append(kinds, "shows")
+		case strings.HasPrefix(u, "spotify:episode:"):
+			kinds = append(kinds, "episodes")
 		}
 	}
 	return kinds

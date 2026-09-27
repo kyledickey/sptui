@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" shape-rendering="crispEdges">
+  <!-- The S of sptui's banner font (internal/banner), on the logo's green. -->
+  <rect width="32" height="32" rx="7" fill="#1ed760"/>
+  <g fill="#0d1014">
+    <rect x="13" y="4" width="12" height="6"/>
+    <rect x="7" y="10" width="12" height="6"/>
+    <rect x="19" y="16" width="6" height="6"/>
+    <rect x="7" y="22" width="12" height="6"/>
+  </g>
+</svg>

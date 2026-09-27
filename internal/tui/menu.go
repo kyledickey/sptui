@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+
 	"github.com/kyledickey/sptui/internal/spotify"
 )
 
@@ -48,8 +49,19 @@ func (m *Model) actionsMenu(r row, from *page) *menu {
 		t := r.track
 		add("Play", func() tea.Cmd { return m.playTrack(from, t) })
 		add("Add to queue", func() tea.Cmd { return m.addToQueue(t) })
-		add("Like / unlike", func() tea.Cmd { return m.toggleSaved(r) })
+		if radioURI(r) != "" {
+			add("Start song radio", func() tea.Cmd { return m.startRadio(r) })
+		}
+		if t.IsEpisode() {
+			add("Save / unsave episode", func() tea.Cmd { return m.toggleSaved(r) })
+		} else {
+			add("Like / unlike", func() tea.Cmd { return m.toggleSaved(r) })
+		}
 		add("Add to playlist…", func() tea.Cmd { m.menu = m.playlistPicker(t); return nil })
+		if t.Show != nil && t.Show.ID != "" {
+			sh := *t.Show
+			add("Go to podcast", func() tea.Cmd { return m.push(showPage(m.backend, sh)) })
+		}
 		if t.Album.ID != "" {
 			add("Go to album", func() tea.Cmd { return m.push(albumPage(m.backend, t.Album)) })
 		}
@@ -58,13 +70,16 @@ func (m *Model) actionsMenu(r row, from *page) *menu {
 				add("Go to "+ar.Name, func() tea.Cmd { return m.push(artistPage(m.backend, ar)) })
 			}
 		}
-	case kindAlbum, kindArtist, kindPlaylist:
+	case kindAlbum, kindArtist, kindPlaylist, kindShow:
 		uri := r.uri()
 		add("Play", func() tea.Cmd { return m.play(spotify.PlayOptions{ContextURI: uri}, nil) })
 		add("Shuffle play", func() tea.Cmd { return m.shufflePlay(r) })
+		if radioURI(r) != "" {
+			add("Start radio", func() tea.Cmd { return m.startRadio(r) })
+		}
 		add("Open", func() tea.Cmd { return m.push(openRow(m.backend, r)) })
 		label := "Save / remove from library"
-		if r.kind == kindArtist {
+		if r.kind == kindArtist || r.kind == kindShow {
 			label = "Follow / unfollow"
 		}
 		if !m.ownPlaylist(r) {

@@ -37,7 +37,7 @@ func TestBlockArtSize(t *testing.T) {
 		}
 	}
 	if !strings.Contains(lines[0], "38;2;255;0;0") || !strings.Contains(lines[3], "48;2;0;0;255") {
-		t.Fatalf("colours missing: %q", lines[0])
+		t.Fatalf("colors missing: %q", lines[0])
 	}
 }
 

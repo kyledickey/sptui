@@ -2,10 +2,12 @@ package spotify
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Per-endpoint page size limits set by Spotify.
@@ -26,6 +28,17 @@ type (
 	}
 	playlistItem struct {
 		Item *Track `json:"item"`
+	}
+	playHistory struct {
+		Track    *Track           `json:"track"`
+		PlayedAt time.Time        `json:"played_at"`
+		Context  *PlaybackContext `json:"context"`
+	}
+	savedShow struct {
+		Show *Show `json:"show"`
+	}
+	savedEpisode struct {
+		Episode *Track `json:"episode"`
 	}
 )
 
@@ -89,13 +102,22 @@ func (c *Client) FollowedArtists(ctx context.Context) ([]Artist, error) {
 	}
 }
 
-// RecentlyPlayed returns the user's last 50 played tracks, newest first.
+// RecentlyPlayed returns the user's last 50 played tracks, newest first,
+// with PlayedAt and PlayedFrom set.
 func (c *Client) RecentlyPlayed(ctx context.Context) ([]Track, error) {
-	var page Page[savedTrack]
+	var page Page[playHistory]
 	if err := c.get(ctx, "/me/player/recently-played", url.Values{"limit": {strconv.Itoa(pageLimit)}}, &page); err != nil {
 		return nil, err
 	}
-	return mapPage(page, func(it savedTrack) *Track { return it.Track }).Items, nil
+	return mapPage(page, func(it playHistory) *Track {
+		if it.Track != nil {
+			it.Track.PlayedAt = it.PlayedAt
+			if it.Context != nil {
+				it.Track.PlayedFrom = it.Context.URI
+			}
+		}
+		return it.Track
+	}).Items, nil
 }
 
 // TopTracks returns the user's most played tracks over the last ~6 months.
@@ -134,6 +156,14 @@ func fillAlbum(tracks []Track, album Album) {
 	}
 }
 
+// Artist returns an artist in full: photo, genres and followers, which the
+// artists on tracks and albums leave out.
+func (c *Client) Artist(ctx context.Context, id string) (Artist, error) {
+	var a Artist
+	err := c.get(ctx, "/artists/"+id, nil, &a)
+	return a, err
+}
+
 // ArtistAlbums returns a page of an artist's albums and singles.
 func (c *Client) ArtistAlbums(ctx context.Context, artistID string, offset int) (Page[Album], error) {
 	var page Page[*Album]
@@ -145,17 +175,52 @@ func (c *Client) ArtistAlbums(ctx context.Context, artistID string, offset int) 
 	return derefPage(page), nil
 }
 
-// Search looks for tracks, albums, artists and playlists matching query.
+// SavedShows returns a page of the podcasts the user follows.
+func (c *Client) SavedShows(ctx context.Context, offset int) (Page[Show], error) {
+	var page Page[savedShow]
+	err := c.get(ctx, "/me/shows", pageQuery(offset, pageLimit), &page)
+	return mapPage(page, func(it savedShow) *Show { return it.Show }), err
+}
+
+// SavedEpisodes returns a page of the user's saved podcast episodes.
+func (c *Client) SavedEpisodes(ctx context.Context, offset int) (Page[Track], error) {
+	var page Page[savedEpisode]
+	err := c.get(ctx, "/me/episodes", pageQuery(offset, pageLimit), &page)
+	return mapPage(page, func(it savedEpisode) *Track { return it.Episode }), err
+}
+
+// ShowEpisodes returns a page of a podcast's episodes, newest first.
+func (c *Client) ShowEpisodes(ctx context.Context, show Show, offset int) (Page[Track], error) {
+	var page Page[*Track]
+	if err := c.get(ctx, "/shows/"+show.ID+"/episodes", pageQuery(offset, pageLimit), &page); err != nil {
+		return Page[Track]{}, err
+	}
+	out := derefPage(page)
+	fillShow(out.Items, show)
+	return out, nil
+}
+
+// fillShow sets the show on simplified episode objects, which omit it.
+func fillShow(episodes []Track, show Show) {
+	for i := range episodes {
+		episodes[i].Show = &Show{ID: show.ID, Name: show.Name, URI: show.URI}
+	}
+}
+
+// Search looks for tracks, albums, artists, playlists, podcasts and
+// episodes matching query.
 func (c *Client) Search(ctx context.Context, query string) (SearchResults, error) {
 	var resp struct {
 		Tracks    Page[*Track]    `json:"tracks"`
 		Albums    Page[*Album]    `json:"albums"`
 		Artists   Page[*Artist]   `json:"artists"`
 		Playlists Page[*Playlist] `json:"playlists"`
+		Shows     Page[*Show]     `json:"shows"`
+		Episodes  Page[*Track]    `json:"episodes"`
 	}
 	q := url.Values{
 		"q":     {query},
-		"type":  {"track,album,artist,playlist"},
+		"type":  {"track,album,artist,playlist,show,episode"},
 		"limit": {strconv.Itoa(searchLimit)},
 	}
 	if err := c.get(ctx, "/search", q, &resp); err != nil {
@@ -166,6 +231,8 @@ func (c *Client) Search(ctx context.Context, query string) (SearchResults, error
 		Albums:    derefPage(resp.Albums).Items,
 		Artists:   derefPage(resp.Artists).Items,
 		Playlists: derefPage(resp.Playlists).Items,
+		Shows:     derefPage(resp.Shows).Items,
+		Episodes:  derefPage(resp.Episodes).Items,
 	}, nil
 }
 
@@ -182,14 +249,15 @@ func (c *Client) InLibrary(ctx context.Context, uris []string) ([]bool, error) {
 	return out, nil
 }
 
-// SaveToLibrary saves tracks or albums, or follows artists or playlists.
+// SaveToLibrary saves tracks, albums or episodes, or follows artists,
+// playlists or podcasts.
 func (c *Client) SaveToLibrary(ctx context.Context, uris []string) error {
-	return c.libraryEdit(ctx, "PUT", uris)
+	return c.libraryEdit(ctx, http.MethodPut, uris)
 }
 
 // RemoveFromLibrary is the inverse of SaveToLibrary.
 func (c *Client) RemoveFromLibrary(ctx context.Context, uris []string) error {
-	return c.libraryEdit(ctx, "DELETE", uris)
+	return c.libraryEdit(ctx, http.MethodDelete, uris)
 }
 
 func (c *Client) libraryEdit(ctx context.Context, method string, uris []string) error {
@@ -203,7 +271,7 @@ func (c *Client) libraryEdit(ctx context.Context, method string, uris []string) 
 
 // AddToPlaylist appends tracks to a playlist.
 func (c *Client) AddToPlaylist(ctx context.Context, playlistID string, uris []string) error {
-	return c.do(ctx, "POST", "/playlists/"+playlistID+"/items", nil, map[string]any{"uris": uris}, nil)
+	return c.do(ctx, http.MethodPost, "/playlists/"+playlistID+"/items", nil, map[string]any{"uris": uris}, nil)
 }
 
 // derefPage drops nil entries, which Spotify sometimes returns for

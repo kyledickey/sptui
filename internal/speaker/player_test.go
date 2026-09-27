@@ -110,3 +110,22 @@ func TestNotReadyBeforeLogin(t *testing.T) {
 		t.Fatalf("Pause before login = %v", err)
 	}
 }
+
+func TestPlaybackEpisode(t *testing.T) {
+	cover := "https://i.scdn.co/image/ep"
+	s, _ := fakeSpeaker(t, &daemon.ApiStatus{
+		DeviceName: "sptui",
+		Track: &daemon.ApiTrack{
+			Name: "Ep 1", Uri: "spotify:episode:e1", Duration: 3600000,
+			AlbumName: "Pod", AlbumCoverUrl: &cover, ArtistNames: []string{"Pod"},
+		},
+	})
+	st, err := s.Playback(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	it := st.Item
+	if !it.IsEpisode() || it.ArtistNames() != "Pod" || it.Album.Name != "" || spotify.CoverURL(it.Cover(), 300) != cover {
+		t.Fatalf("episode = %+v", it)
+	}
+}

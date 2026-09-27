@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"runtime"
@@ -12,6 +13,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/kyledickey/sptui/internal/config"
+	"github.com/kyledickey/sptui/internal/intro"
 )
 
 // The settings screen edits the config from inside sptui. Appearance
@@ -35,10 +37,11 @@ type setting struct {
 	action  func() tea.Cmd // a button instead of a value
 }
 
-// accents are the colour presets, in the order they cycle.
+// accents are the color presets, in the order they cycle.
 var accents = []struct{ name, hex string }{
 	{"green", "#1ed760"}, {"blue", "#4da3ff"}, {"purple", "#b18cff"}, {"pink", "#ff7ab6"},
 	{"orange", "#ff9f43"}, {"teal", "#2dd4bf"}, {"yellow", "#f5d547"}, {"red", "#ff6b6b"},
+	{"from cover art", AccentFromCover},
 }
 
 // artChoices maps what the screen shows to config values.
@@ -63,7 +66,8 @@ func (m *Model) settings() []setting {
 
 	list := []setting{
 		{
-			section: "Appearance", label: "Accent colour",
+			section: "Appearance", label: "Accent color",
+			help:    "From cover art takes the color from whatever's playing, so sptui re-themes itself with every song.",
 			choices: names(accents),
 			get: func(c config.Config) string {
 				for _, a := range accents {
@@ -81,6 +85,13 @@ func (m *Model) settings() []setting {
 				}
 				return nil
 			},
+		},
+		{
+			section: "Appearance", label: "Scroll long titles",
+			help:    "Titles too long to fit slide past, like a marquee. Off cuts them short with …",
+			choices: []string{"on", "off"},
+			get:     func(c config.Config) string { return onOff(c.Theme.ScrollTitles) },
+			set:     func(c *config.Config, v string) error { c.Theme.ScrollTitles = v == "on"; return nil },
 		},
 		{
 			section: "Appearance", label: "Album art",
@@ -102,6 +113,18 @@ func (m *Model) settings() []setting {
 			choices: []string{"small", "medium", "large"},
 			get:     func(c config.Config) string { return c.Theme.NowPlayingCover },
 			set:     func(c *config.Config, v string) error { c.Theme.NowPlayingCover = v; return nil },
+		},
+		{
+			section: "Appearance", label: "Startup animation",
+			help:    "Plays while your library loads; any key skips it. Changing it here plays it for you.",
+			choices: append(intro.Names(), "off"),
+			get: func(c config.Config) string {
+				if _, ok := intro.Find(c.Theme.Intro); ok {
+					return c.Theme.Intro
+				}
+				return "off"
+			},
+			set: func(c *config.Config, v string) error { c.Theme.Intro = v; return nil },
 		},
 		{
 			section: "Player", label: "Play music in sptui", restart: true,
@@ -128,7 +151,7 @@ func (m *Model) settings() []setting {
 			get:  func(c config.Config) string { return c.Player.Name },
 			set: func(c *config.Config, v string) error {
 				if v = strings.TrimSpace(v); v == "" {
-					return fmt.Errorf("the device needs a name")
+					return errors.New("the device needs a name")
 				}
 				c.Player.Name = v
 				return nil
@@ -174,7 +197,7 @@ func (m *Model) settings() []setting {
 			set: func(c *config.Config, v string) error {
 				v = strings.ToLower(strings.TrimSpace(v))
 				if v != "" && !clientIDPattern.MatchString(v) {
-					return fmt.Errorf("a Client ID is 32 letters and numbers, like 1a2b3c…")
+					return errors.New("a Client ID is 32 letters and numbers, like 1a2b3c…")
 				}
 				c.ClientID = v
 				if v != "" && c.RedirectURI == "" {
@@ -327,6 +350,9 @@ func (m *Model) applySetting(s setting, value string) tea.Cmd {
 	// Live changes.
 	if old.Theme.Accent != cfg.Theme.Accent {
 		m.setTheme(m.dark)
+	}
+	if old.Theme.Intro != cfg.Theme.Intro {
+		return m.playIntro(cfg.Theme.Intro, true)
 	}
 	if artMode(old) != artMode(cfg) {
 		free := m.freeCovers()

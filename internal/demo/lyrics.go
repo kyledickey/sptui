@@ -4,6 +4,7 @@ import (
 	"context"
 	"hash/fnv"
 	"math/rand/v2"
+	"strings"
 	"time"
 
 	"github.com/kyledickey/sptui/internal/lyrics"
@@ -33,14 +34,11 @@ func (b *Backend) Lyrics(ctx context.Context, t spotify.Track) (lyrics.Lyrics, e
 	var l lyrics.Lyrics
 	l.Synced = true
 	for at := 8 * time.Second; at < t.Duration()-5*time.Second; at += time.Duration(3+r.IntN(3)) * time.Second {
-		n := 3 + r.IntN(5)
-		text := ""
-		for i := range n {
-			if i > 0 {
-				text += " "
-			}
-			text += lyricWords[r.IntN(len(lyricWords))]
+		words := make([]string, 3+r.IntN(5))
+		for i := range words {
+			words[i] = lyricWords[r.IntN(len(lyricWords))]
 		}
+		text := strings.Join(words, " ")
 		if r.IntN(9) == 0 {
 			text = "" // an instrumental break
 		}

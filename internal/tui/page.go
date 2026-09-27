@@ -17,6 +17,7 @@ const (
 	kindAlbum
 	kindArtist
 	kindPlaylist
+	kindShow
 )
 
 // row is one line in a list. Only the field matching kind is set.
@@ -27,12 +28,14 @@ type row struct {
 	album    spotify.Album
 	artist   spotify.Artist
 	playlist spotify.Playlist
+	show     spotify.Show
 }
 
 func trackRow(t spotify.Track) row       { return row{kind: kindTrack, track: t} }
 func albumRow(a spotify.Album) row       { return row{kind: kindAlbum, album: a} }
 func artistRow(a spotify.Artist) row     { return row{kind: kindArtist, artist: a} }
 func playlistRow(p spotify.Playlist) row { return row{kind: kindPlaylist, playlist: p} }
+func showRow(s spotify.Show) row         { return row{kind: kindShow, show: s} }
 func headerRow(title string) row         { return row{kind: kindHeader, header: title} }
 
 // uri returns the Spotify URI of the row's entity.
@@ -46,6 +49,8 @@ func (r row) uri() string {
 		return r.artist.URI
 	case kindPlaylist:
 		return r.playlist.URI
+	case kindShow:
+		return r.show.URI
 	}
 	return ""
 }
@@ -61,8 +66,28 @@ func (r row) name() string {
 		return r.artist.Name
 	case kindPlaylist:
 		return r.playlist.Name
+	case kindShow:
+		return r.show.Name
 	}
 	return r.header
+}
+
+// cover returns the URL of the row's artwork, or "" if it has none.
+func (r row) cover() string {
+	var images []spotify.Image
+	switch r.kind {
+	case kindTrack:
+		images = r.track.Cover()
+	case kindAlbum:
+		images = r.album.Images
+	case kindArtist:
+		images = r.artist.Images
+	case kindPlaylist:
+		images = r.playlist.Images
+	case kindShow:
+		images = r.show.Images
+	}
+	return spotify.CoverURL(images, coverSource)
 }
 
 // matches reports whether the row contains every word of filter.
@@ -80,6 +105,8 @@ func (r row) matches(filter string) bool {
 		hay = r.artist.Name + " " + strings.Join(r.artist.Genres, " ")
 	case kindPlaylist:
 		hay = r.playlist.Name + " " + r.playlist.Owner.Name()
+	case kindShow:
+		hay = r.show.Name + " " + r.show.Publisher
 	}
 	hay = strings.ToLower(hay)
 	for word := range strings.FieldsSeq(strings.ToLower(filter)) {
@@ -93,9 +120,12 @@ func (r row) matches(filter string) bool {
 // chunk is one batch of rows from a loader. next is the offset to request
 // the following batch from, or -1 when everything is loaded.
 type chunk struct {
-	rows  []row
-	next  int
-	total int
+	rows        []row
+	next        int
+	total       int
+	homeData    *homeData       // the home page's extras
+	artistPlays *int            // an artist page's: plays of them among recent plays
+	artist      *spotify.Artist // and the artist in full, when the page only had a name
 }
 
 // loadFunc fetches rows starting at offset.
@@ -144,6 +174,16 @@ type page struct {
 	cover      string // cover image URL
 	about      string // a line under the subtitle, e.g. a playlist description
 	noAlbum    bool   // hide the album column (album pages)
+	episodes   bool   // rows are podcast episodes: label columns for them
+	kicker     string // a small heading over the title, e.g. "ALBUM · 2016"
+	lengths    bool   // draw each song's length as a bar (album pages)
+	grid       bool   // tiles in a grid, newest first (an artist's releases)
+	strip      bool   // a strip of every song's cover color (playlists)
+	home       bool   // the home page
+	homeData   *homeData
+	tabs       []searchTab // kinds of row to show, picked with 1-9
+	tab        int         // which of tabs is showing; 0 shows all
+	plays      int         // artist pages: plays among recent plays, -1 if unknown
 	isSearch   bool
 	query      string
 	live       bool           // reload when the playing track changes (the queue)
@@ -154,12 +194,27 @@ type page struct {
 }
 
 func newPage(title string, kind rowKind, load loadFunc) *page {
-	return &page{title: title, kind: kind, load: load}
+	return &page{title: title, kind: kind, load: load, plays: -1}
 }
 
 // append adds a loaded chunk.
 func (p *page) append(c chunk) {
+	if c.homeData != nil {
+		p.homeData = c.homeData
+	}
+	if c.artistPlays != nil {
+		p.plays = *c.artistPlays
+	}
+	if a := c.artist; a != nil && p.self != nil {
+		p.self.artist = *a
+		p.cover = spotify.CoverURL(a.Images, coverSource)
+		p.about = strings.Join(a.Genres, ", ")
+	}
 	p.rows = append(p.rows, c.rows...)
+	if p.grid {
+		// Newest first. Spotify lists albums, then singles, a page at a time.
+		slices.SortStableFunc(p.rows, func(a, b row) int { return strings.Compare(b.album.ReleaseDate, a.album.ReleaseDate) })
+	}
 	p.next = c.next
 	p.total = max(c.total, len(p.rows))
 	p.refilter()
@@ -209,7 +264,7 @@ func (p *page) setFilter(f string) {
 func (p *page) refilter() {
 	p.visible = p.visible[:0]
 	for i, r := range p.rows {
-		if p.filter == "" || r.matches(p.filter) {
+		if (p.filter == "" || r.matches(p.filter)) && (p.tab == 0 || p.tabs[p.tab].shows(r)) {
 			p.visible = append(p.visible, i)
 		}
 	}
@@ -262,16 +317,21 @@ func (p *page) selectable(start, dir int) int {
 
 // scrollTo keeps the cursor inside a viewport of height lines.
 func (p *page) scrollTo(height int) {
-	if height <= 0 {
-		return
+	if height > 0 {
+		p.scroll = keepInView(p.scroll, p.cursor, height, len(p.visible))
 	}
-	if p.cursor < p.scroll {
-		p.scroll = p.cursor
+}
+
+// keepInView returns the first of n lines to show in a viewport of height
+// lines so that cursor is in it, moving on from scroll as little as needed.
+func keepInView(scroll, cursor, height, n int) int {
+	if cursor < scroll {
+		scroll = cursor
 	}
-	if p.cursor >= p.scroll+height {
-		p.scroll = p.cursor - height + 1
+	if cursor >= scroll+height {
+		scroll = cursor - height + 1
 	}
-	p.scroll = max(0, min(p.scroll, len(p.visible)-height))
+	return max(0, min(scroll, n-height))
 }
 
 // tracks returns every track row and the index of target among them.

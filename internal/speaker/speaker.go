@@ -1,6 +1,7 @@
 // Package speaker runs a Spotify Connect device inside sptui, so music plays
 // right here on this computer. It wraps go-librespot's daemon: Spotify sees
-// sptui as a speaker, and the UI drives it through the normal Web API.
+// sptui as a speaker, and the UI drives it directly, in process (see
+// player.go), without going through the Web API.
 package speaker
 
 import (
@@ -33,10 +34,12 @@ type Credentials struct {
 
 // Speaker is a running Spotify Connect device.
 type Speaker struct {
-	cancel context.CancelFunc
-	server *localServer
-	done   chan struct{}
-	err    error // why it stopped; read after done is closed
+	cancel  context.CancelFunc
+	server  *localServer
+	done    chan struct{}
+	err     error // why it stopped; read after done is closed
+	connect connect
+	dj      djResume
 }
 
 // HasLogin reports whether the speaker has a saved login, so it can start
@@ -54,6 +57,7 @@ func Start(ctx context.Context, cfg Config, creds Credentials, log *slog.Logger)
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	s := &Speaker{cancel: cancel, server: newLocalServer(), done: make(chan struct{})}
+	s.dj.path = filepath.Join(filepath.Dir(cfg.StatePath), "dj.json")
 	store := &stateStore{path: cfg.StatePath}
 
 	app, err := newApp(cfg, creds, store, s.server, log)
@@ -116,6 +120,7 @@ func Forget(statePath string) error {
 
 func newApp(cfg Config, creds Credentials, store *stateStore, server *localServer, log *slog.Logger) (*daemon.App, error) {
 	llog := &logger{log: log.With("pkg", "librespot")}
+	routeLogrus(llog.log)
 
 	dc := &daemon.Config{
 		DeviceName:       cfg.Name,

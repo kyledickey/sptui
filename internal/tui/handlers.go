@@ -2,11 +2,14 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"math/rand/v2"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+
 	"github.com/kyledickey/sptui/internal/spotify"
 )
 
@@ -19,8 +22,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	}
 	switch {
 	case m.showHelp:
-		m.showHelp = false
-		return nil
+		return m.helpKey(msg)
 	case m.menu != nil:
 		return m.menuKey(msg)
 	case m.inputMode != inputNone:
@@ -34,6 +36,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		switch s := msg.String(); s {
 		case "1", "2", "3":
 			return m.togglePanel(rune(s[0]))
+		}
+	}
+	if p := m.current(); p != nil && len(p.tabs) > 0 && m.focus == focusMain {
+		if s := msg.String(); len(s) == 1 && s[0] >= '1' && int(s[0]-'1') < len(p.tabs) {
+			p.setTab(int(s[0] - '1'))
+			return nil
 		}
 	}
 
@@ -62,7 +70,7 @@ func (m *Model) globalKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	case key.Matches(msg, k.Quit):
 		return m.quit(), true
 	case key.Matches(msg, k.Help):
-		m.showHelp = true
+		m.openHelp()
 	case key.Matches(msg, k.Search):
 		return m.openSearch(), true
 	case key.Matches(msg, k.PlayPause):
@@ -151,6 +159,13 @@ func (m *Model) sidebarKey(msg tea.KeyPressMsg) tea.Cmd {
 
 func (m *Model) listKey(msg tea.KeyPressMsg, p *page) tea.Cmd {
 	k := m.keys
+	up, down := key.Matches(msg, k.Up), key.Matches(msg, k.Down)
+	if p.home && homeKey(msg.String(), up, down, p) {
+		return nil
+	}
+	if p.grid && m.gridKey(msg.String(), up, down, p) {
+		return m.loadMore(p)
+	}
 	switch {
 	case key.Matches(msg, k.Up):
 		p.move(-1)
@@ -178,6 +193,24 @@ func (m *Model) listKey(msg tea.KeyPressMsg, p *page) tea.Cmd {
 		return m.openFilter()
 	case key.Matches(msg, k.Reload):
 		return m.reload(p)
+	case key.Matches(msg, k.PlayAll):
+		if p.context != "" {
+			return m.play(spotify.PlayOptions{ContextURI: p.context}, nil)
+		}
+	case key.Matches(msg, k.ShuffleAll):
+		switch {
+		case p.self != nil:
+			return m.shufflePlay(*p.self)
+		case p.context != "":
+			return m.shufflePlay(playlistRow(spotify.Playlist{Name: p.title, URI: p.context, Items: &spotify.Count{Total: p.total}}))
+		}
+	case key.Matches(msg, k.Radio):
+		switch r, ok := p.selected(); {
+		case ok:
+			return m.startRadio(r)
+		case p.self != nil:
+			return m.startRadio(*p.self)
+		}
 	case key.Matches(msg, k.Menu):
 		if r, ok := p.selected(); ok {
 			m.menu = m.actionsMenu(r, p)
@@ -210,11 +243,10 @@ func (m *Model) menuKey(msg tea.KeyPressMsg) tea.Cmd {
 	case key.Matches(msg, k.Back, k.Quit, k.Menu, k.Devices):
 		m.menu = nil
 	case key.Matches(msg, k.Enter):
+		m.menu = nil
 		if len(mn.items) == 0 {
-			m.menu = nil
 			return nil
 		}
-		m.menu = nil
 		// run may open another menu (e.g. the playlist picker).
 		return mn.items[mn.cursor].run()
 	}
@@ -236,10 +268,10 @@ func (m *Model) inputKey(msg tea.KeyPressMsg) tea.Cmd {
 	case msg.String() == "enter":
 		mode := m.inputMode
 		m.closeInput()
-		if mode == inputSetting {
+		switch mode {
+		case inputSetting:
 			return m.finishEdit()
-		}
-		if mode == inputSearch {
+		case inputSearch:
 			m.searchSeq++ // cancel the pending debounce
 			return m.runSearch(m.input.Value())
 		}
@@ -297,24 +329,72 @@ func (m *Model) shufflePlay(r row) tea.Cmd {
 		n = r.album.TotalTracks
 	case kindPlaylist:
 		n = r.playlist.TrackCount()
+	case kindShow:
+		n = r.show.TotalEpisodes
 	}
 	if n > 1 {
 		opts.OffsetIndex = rand.IntN(n)
 	}
 	local := m.wantLocal()
 	return m.act("shuffle play", "Shuffling “"+r.name()+"”", func(ctx context.Context) error {
-		if local {
-			dev, err := m.localDevice(ctx)
-			if err != nil {
-				return err
-			}
-			opts.DeviceID = dev.ID
+		if err := m.playHere(ctx, local, &opts); err != nil {
+			return err
 		}
 		// The random start makes the first song a surprise too.
 		if err := m.startPlayback(ctx, opts, nil); err != nil {
 			return err
 		}
 		return m.backend.SetShuffle(ctx, true)
+	})
+}
+
+// radioURI is Spotify's endless station seeded by r, or "" if r can't seed
+// one (podcasts, episodes, local files).
+func radioURI(r row) string {
+	switch r.kind {
+	case kindTrack:
+		if r.track.IsEpisode() || r.track.IsLocal || r.track.ID == "" {
+			return ""
+		}
+	case kindAlbum, kindArtist, kindPlaylist:
+	default:
+		return ""
+	}
+	if uri := r.uri(); strings.HasPrefix(uri, "spotify:") {
+		return "spotify:station:" + strings.TrimPrefix(uri, "spotify:")
+	}
+	return ""
+}
+
+// startRadio plays an endless mix of songs like r.
+func (m *Model) startRadio(r row) tea.Cmd {
+	uri := radioURI(r)
+	if uri == "" {
+		m.setStatus("Radio only works for songs, albums, artists and playlists", true)
+		return nil
+	}
+	return m.playSpeakerOnly("radio", uri, "Radio from “"+r.name()+"”")
+}
+
+func (m *Model) startDJ() tea.Cmd {
+	return m.playSpeakerOnly("DJ", spotify.DJURI, "DJ X is on")
+}
+
+// playSpeakerOnly plays a context that only sptui's own speaker can handle
+// (stations, the DJ); the Web API refuses them for other devices.
+func (m *Model) playSpeakerOnly(name, uri, ok string) tea.Cmd {
+	local := m.wantLocal()
+	onSpeaker := local || (m.opts.LocalDevice != "" && !m.remoteChosen)
+	return m.act(name, ok, func(ctx context.Context) error {
+		opts := spotify.PlayOptions{ContextURI: uri}
+		if err := m.playHere(ctx, local, &opts); err != nil {
+			return err
+		}
+		err := m.startPlayback(ctx, opts, nil)
+		if err != nil && !onSpeaker {
+			return errors.New(name + " only plays on sptui's own speaker — press d to switch")
+		}
+		return err
 	})
 }
 
@@ -389,7 +469,7 @@ func (m *Model) changeVolume(delta int) tea.Cmd {
 	m.player.changedAt = time.Now()
 	m.player.volumeSeq++
 	seq := m.player.volumeSeq
-	return tea.Tick(volumeDebounce, func(time.Time) tea.Msg { return volumeMsg{seq: seq, percent: v} })
+	return schedule(volumeDebounce, func(time.Time) tea.Msg { return volumeMsg{seq: seq, percent: v} })
 }
 
 func (m *Model) toggleShuffle() tea.Cmd {

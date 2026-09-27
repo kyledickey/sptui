@@ -2,20 +2,18 @@ package tui
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"encoding/base64"
 	"fmt"
 	"image"
 	"image/png"
-	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 
@@ -37,22 +35,29 @@ func withArt(mode art.Mode) config.Config {
 var _ Backend = (*demo.Backend)(nil)
 
 // driver runs a model like Bubble Tea would, executing commands and feeding
-// their messages back in until things go quiet. Slow commands (the progress
-// tick) are left behind.
+// their messages back in until every command has finished.
 type driver struct {
-	t    *testing.T
-	m    *Model
-	raw  []string      // sequences written straight to the terminal
-	idle time.Duration // quiet time that counts as settled; default idle
+	t   *testing.T
+	m   *Model
+	raw []string // sequences written straight to the terminal
 }
 
-// idle is how long run waits for another message before deciding the
-// model has settled.
-const idle = 50 * time.Millisecond
+// stuck is how long run waits for a message before giving up on the
+// commands still running.
+const stuck = 10 * time.Second
 
 func init() {
-	tickEvery, lyricsTick = time.Hour, time.Hour // ticks would never settle
+	tickEvery, lyricsTick, animTick = time.Hour, time.Hour, time.Hour // ticks would never settle
 	settleDelay, searchDebounce, volumeDebounce, localGrace = time.Millisecond, time.Millisecond, time.Millisecond, 0
+	blinkCursor = false
+	loadingSpinner.FPS = time.Millisecond
+	// Drop the hour-long ticks rather than leave them pending forever.
+	schedule = func(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd {
+		if d >= time.Hour {
+			return nil
+		}
+		return tea.Tick(d, fn)
+	}
 }
 
 func newDriver(t *testing.T, w, h int) *driver {
@@ -69,7 +74,32 @@ func newDriverWith(t *testing.T, w, h int, b Backend, opts Options) *driver {
 	d := &driver{t: t, m: New(b, opts)}
 	d.m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	d.run(d.m.Init())
+	// Most tests start from a plain list, as sptui did before its home page.
+	if p := d.m.current(); p != nil && p.home {
+		d.open("Liked Songs")
+	}
 	return d
+}
+
+// navIndex is where the sidebar item labelled label is ("playlist" finds
+// the first playlist).
+func (d *driver) navIndex(label string) int {
+	d.t.Helper()
+	for i, it := range d.m.sidebar.items {
+		if it.label == label || (label == "playlist" && it.playlist != nil) {
+			return i
+		}
+	}
+	d.t.Fatalf("no sidebar item %q", label)
+	return 0
+}
+
+// open opens the sidebar item labelled label.
+func (d *driver) open(label string) {
+	d.t.Helper()
+	i := d.navIndex(label)
+	d.m.sidebar.cursor = i
+	d.run(d.m.openNav(i))
 }
 
 // run executes cmd and everything it leads to until things go quiet.
@@ -113,24 +143,10 @@ func (d *driver) run(cmd tea.Cmd) {
 		case msg := <-msgs:
 			pending--
 			deliver(msg)
-		case <-time.After(cmp.Or(d.idle, idle)):
-			return
+		case <-time.After(stuck):
+			d.t.Fatalf("%d commands still running after %s", pending, stuck)
 		}
 	}
-}
-
-// sequence unpacks tea.Sequence's unexported message, a []tea.Cmd, which
-// must run in order.
-func sequence(msg tea.Msg) ([]tea.Cmd, bool) {
-	v := reflect.ValueOf(msg)
-	if v.Kind() != reflect.Slice || v.Type().Elem() != reflect.TypeFor[tea.Cmd]() {
-		return nil, false
-	}
-	cmds := make([]tea.Cmd, v.Len())
-	for i := range cmds {
-		cmds[i] = v.Index(i).Interface().(tea.Cmd)
-	}
-	return cmds, true
 }
 
 // press sends keys, e.g. "j", "enter", "ctrl+r".
@@ -233,7 +249,7 @@ func TestSearch(t *testing.T) {
 func TestOpenArtistThenBack(t *testing.T) {
 	d := newDriver(t, 120, 40)
 	d.press("tab", "G", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k") // walk up from the last playlist
-	d.m.sidebar.cursor = 5                                                // Artists
+	d.m.sidebar.cursor = d.navIndex("Artists")
 	d.press("enter")
 	if d.page().title != "Artists" {
 		t.Fatalf("on %q", d.page().title)
@@ -344,7 +360,9 @@ func TestMouse(t *testing.T) {
 		t.Fatal("second click should play the row")
 	}
 	// Clicking a sidebar item opens it.
-	d.run(func() tea.Msg { return tea.MouseClickMsg{X: 3, Y: top + 2, Button: tea.MouseLeft} })
+	d.run(func() tea.Msg {
+		return tea.MouseClickMsg{X: 3, Y: top + d.navIndex("Recently Played"), Button: tea.MouseLeft}
+	})
 	if d.page().title != "Recently Played" {
 		t.Fatalf("sidebar click opened %q", d.page().title)
 	}
@@ -384,7 +402,7 @@ func TestFilterOnSearchPageDoesNotSearch(t *testing.T) {
 func TestOwnPlaylistCannotBeUnfollowedByAccident(t *testing.T) {
 	d := newDriver(t, 120, 40)
 	before := len(d.m.sidebar.playlists())
-	d.m.sidebar.cursor = 8 // first playlist, owned by the demo user
+	d.m.sidebar.cursor = d.navIndex("playlist") // owned by the demo user
 	d.press("tab", "enter", "esc")
 	if p := d.page(); p.self != nil {
 		d.m.menu = d.m.actionsMenu(*p.self, nil)
@@ -431,7 +449,7 @@ func TestPlaysOnLocalSpeaker(t *testing.T) {
 // openFirstAlbum goes Albums → first album.
 func (d *driver) openFirstAlbum() {
 	d.t.Helper()
-	d.m.sidebar.cursor = 4 // Albums
+	d.m.sidebar.cursor = d.navIndex("Albums")
 	d.press("tab", "enter", "enter")
 	if p := d.page(); p.cover == "" || !p.noAlbum {
 		d.t.Fatalf("not on an album page with a cover: %q", p.title)
@@ -564,7 +582,7 @@ func TestNowPlayingView(t *testing.T) {
 	d.playSongWithLyrics()
 	view := ansi.Strip(d.m.View().Content)
 	tr := d.m.player.track()
-	for _, want := range []string{"1 track", "2 lyrics", "3 up next", tr.Name, "▀"} {
+	for _, want := range []string{"2 lyrics", "3 up next", tr.Name, "▀", "▮"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view lacks %q", want)
 		}
@@ -592,24 +610,33 @@ func TestNowPlayingView(t *testing.T) {
 func TestNowPlayingLayoutFits(t *testing.T) {
 	for _, mode := range []art.Mode{art.Off, art.Blocks, art.Kitty} {
 		for _, sz := range [][2]int{{60, 16}, {80, 24}, {120, 35}, {220, 60}} {
-			d := newDriverWith(t, sz[0], sz[1], demo.New(), Options{Config: withArt(mode)})
-			d.press("o") // nothing playing yet
-			check := func(state string) {
-				t.Helper()
-				lines := strings.Split(d.m.View().Content, "\n")
-				if len(lines) != sz[1] {
-					t.Errorf("%v %dx%d %s: %d lines", mode, sz[0], sz[1], state, len(lines))
-				}
-				for i, l := range lines {
-					if w := lipgloss.Width(l); w > sz[0] {
-						t.Errorf("%v %dx%d %s: line %d is %d wide", mode, sz[0], sz[1], state, i, w)
+			for _, panels := range []string{"123", "1"} {
+				cfg := withArt(mode)
+				cfg.Theme.NowPlayingPanels = panels
+				d := newDriverWith(t, sz[0], sz[1], demo.New(), Options{Config: cfg})
+				d.press("o") // nothing playing yet
+				check := func(state string) {
+					t.Helper()
+					lines := strings.Split(d.m.View().Content, "\n")
+					if len(lines) != sz[1] {
+						t.Errorf("%v %s %dx%d %s: %d lines", mode, panels, sz[0], sz[1], state, len(lines))
+					}
+					for i, l := range lines {
+						if w := lipgloss.Width(l); w > sz[0] {
+							t.Errorf("%v %s %dx%d %s: line %d is %d wide", mode, panels, sz[0], sz[1], state, i, w)
+						}
 					}
 				}
+				check("idle")
+				d.press("esc", "enter", "o")
+				if panels == "1" {
+					d.press("n")
+					d.run(func() tea.Msg { return refreshMsg{} })
+				} else {
+					d.playSongWithLyrics()
+				}
+				check("playing")
 			}
-			check("idle")
-			d.press("esc", "enter", "o")
-			d.playSongWithLyrics()
-			check("playing")
 		}
 	}
 }
@@ -684,7 +711,7 @@ func TestSettings(t *testing.T) {
 	if d.m.cfg.Theme.CoverArt != "off" || d.m.covers.mode != art.Off {
 		t.Fatalf("album art = %q, covers %v", d.m.cfg.Theme.CoverArt, d.m.covers.mode)
 	}
-	p.cursor = d.settingIndex("Accent colour")
+	p.cursor = d.settingIndex("Accent color")
 	before := d.m.st.accent
 	d.press("enter")
 	if d.m.cfg.Theme.Accent != "#4da3ff" || d.m.st.accent == before {
@@ -725,7 +752,7 @@ func TestSettingsLayoutFits(t *testing.T) {
 	for _, sz := range [][2]int{{60, 16}, {80, 24}, {140, 45}} {
 		d := newDriverWith(t, sz[0], sz[1], demo.New(), Options{})
 		d.press(",")
-		for _, label := range []string{"Accent colour", "Your own Spotify app"} {
+		for _, label := range []string{"Accent color", "Your own Spotify app"} {
 			d.page().cursor = d.settingIndex(label)
 			lines := strings.Split(d.m.View().Content, "\n")
 			if len(lines) != sz[1] {
@@ -901,7 +928,6 @@ func sentImages(t *testing.T, raw []string) []image.Config {
 
 func TestKittyImagesFillTheirCells(t *testing.T) {
 	d := newDriverWith(t, 140, 45, demo.New(), Options{Config: withArt(art.Kitty)})
-	d.idle = time.Second // encoding a big PNG is slow under -race
 	d.run(func() tea.Msg { return uv.CellSizeEvent{Width: 9, Height: 18} })
 	d.press("enter", "o")
 	l := d.m.nowPlayingLayout()
@@ -917,5 +943,52 @@ func TestKittyImagesFillTheirCells(t *testing.T) {
 	// Square in pixels, give or take half a cell.
 	if diff := img.Width - img.Height; diff < -5 || diff > 5 {
 		t.Fatalf("cover box %dx%d px isn't square", img.Width, img.Height)
+	}
+}
+
+func TestPodcasts(t *testing.T) {
+	d := newDriver(t, 120, 40)
+	d.press("tab")
+	d.m.sidebar.cursor = d.navIndex("Podcasts")
+	d.press("enter")
+	if p := d.page(); p.title != "Podcasts" || p.kind != kindShow || len(p.rows) == 0 {
+		t.Fatalf("on %q with %d rows", p.title, len(p.rows))
+	}
+	d.press("enter")
+	p := d.page()
+	if !p.episodes || len(d.m.stack) != 2 || len(p.rows) == 0 {
+		t.Fatalf("podcast page not opened: %q depth %d", p.title, len(d.m.stack))
+	}
+	if content := d.m.View().Content; !strings.Contains(content, "RELEASED") {
+		t.Fatalf("episode columns missing:\n%s", content)
+	}
+	d.press("enter")
+	tr := d.m.player.track()
+	if tr == nil || !tr.IsEpisode() || tr.URI != p.rows[0].track.URI {
+		t.Fatalf("playing %+v, want the first episode", tr)
+	}
+	d.press("o")
+	if d.m.lyrics.uri == tr.URI || !strings.Contains(d.m.View().Content, "Podcasts don't have lyrics") {
+		t.Fatal("lyrics looked up for an episode")
+	}
+	d.press("esc", "l")
+	if !strings.HasSuffix(d.m.status.text, "Your Episodes") {
+		t.Fatalf("status = %q", d.m.status.text)
+	}
+}
+
+func TestSearchFindsPodcasts(t *testing.T) {
+	d := newDriver(t, 120, 40)
+	d.press("/")
+	d.typeText("signal")
+	d.press("enter")
+	var sections []string
+	for _, r := range d.page().rows {
+		if r.kind == kindHeader {
+			sections = append(sections, r.header)
+		}
+	}
+	if !slices.Contains(sections, "Podcasts") {
+		t.Fatalf("sections = %v", sections)
 	}
 }

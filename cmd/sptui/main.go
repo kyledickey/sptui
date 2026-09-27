@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -136,12 +135,11 @@ func run(args []string) error {
 			return nil
 		case tui.Restart:
 			log.Info("restarting to apply settings")
-		case tui.LogOut, tui.LogIn:
+		case tui.LogOut:
+			return a.logout()
+		case tui.LogIn:
 			if err := a.logout(); err != nil {
 				return err
-			}
-			if outcome == tui.LogOut {
-				return nil
 			}
 		}
 		// Go round again with the saved settings; it logs in if needed.
@@ -162,8 +160,9 @@ type app struct {
 	log          *slog.Logger
 
 	// Set by configure from the config file.
-	cfg   config.Config
-	authn *auth.Authenticator
+	cfg        config.Config
+	authn      *auth.Authenticator
+	introShown bool
 }
 
 // configure (re)reads the config file, so settings changed in the UI take
@@ -176,6 +175,12 @@ func (a *app) configure() error {
 	if _, err := art.ParseMode(cfg.Theme.CoverArt); err != nil {
 		return fmt.Errorf("config %s: %w", a.configPath, err)
 	}
+	a.use(cfg)
+	return nil
+}
+
+// use switches to cfg's settings, and the Web API app it names.
+func (a *app) use(cfg config.Config) {
 	webApp := auth.WebAPI
 	if cfg.ClientID != "" {
 		webApp = auth.WebAPIWith(cfg.ClientID, cfg.RedirectURI)
@@ -183,7 +188,6 @@ func (a *app) configure() error {
 	a.log.Info("configured", "cover art", cfg.Theme.CoverArt, "web api client", webApp.ClientID, "player", cfg.Player.Enabled)
 	a.cfg = cfg
 	a.authn = auth.New(webApp, a.tokenPath, a.log.With("pkg", "auth"))
-	return nil
 }
 
 // session logs in if needed, starts the speaker and runs the UI until the
@@ -193,8 +197,10 @@ func (a *app) session(ctx context.Context) (tui.Outcome, error) {
 		Config:     a.cfg,
 		SaveConfig: func(c config.Config) error { return config.Save(a.configPath, c) },
 		KeepAwake:  a.keeper.Set,
+		Intro:      !a.introShown, // not again on restart
 		Log:        a.log,
 	}
+	a.introShown = true
 	var backend tui.Backend
 	var spk *speaker.Speaker
 	if a.demo {
@@ -203,10 +209,11 @@ func (a *app) session(ctx context.Context) (tui.Outcome, error) {
 		backend = d
 		opts.LocalDevice = "Demo Laptop"
 	} else {
-		speakerToken, err := a.login(ctx)
-		if err != nil {
+		speakerToken, ok, err := a.login(ctx)
+		if err != nil || !ok {
 			return tui.Quit, err
 		}
+		opts.Config = a.cfg // the login screen may have set up the user's own app
 		if a.cfg.Player.Enabled {
 			if spk, err = a.startSpeaker(ctx, speakerToken); err != nil {
 				return tui.Quit, err
@@ -268,48 +275,86 @@ func (a *app) logout() error {
 	return nil
 }
 
-// login runs whichever logins are missing — the speaker's and the Web
-// API's — in one browser tab: Spotify shows its approval pages one after
+// login shows the login screen if any logins are missing — the speaker's
+// and the Web API's — and reports whether the user went through with it.
+// The approvals share one browser tab: Spotify shows its pages one after
 // the other (or none, for apps the user already allowed). It returns a
 // token for the speaker's first login, if it needed one.
-func (a *app) login(ctx context.Context) (speakerToken string, err error) {
-	var steps []*auth.Pending
-	var purposes []string
-	var speakerLogin *auth.Pending
-	if !a.authn.LoggedIn() {
-		p, err := a.authn.Start("")
-		if err != nil {
-			return "", err
-		}
-		steps, purposes = append(steps, p), append(purposes, auth.WebAPI.Purpose)
+func (a *app) login(ctx context.Context) (speakerToken string, ok bool, err error) {
+	webNeeded := !a.authn.LoggedIn()
+	speakerNeeded := a.cfg.Player.Enabled && !speaker.HasLogin(a.speakerState)
+	if !webNeeded && !speakerNeeded {
+		return "", true, nil
 	}
-	if a.cfg.Player.Enabled && !speaker.HasLogin(a.speakerState) {
-		next := ""
-		if len(steps) > 0 {
-			next = steps[0].URL // continue with the Web API login
+	start := func(cfg config.Config) (tui.LoginAttempt, error) {
+		a.use(cfg) // the user may have brought their own app
+		var web, spk *auth.Pending
+		cancel := func() {
+			for _, p := range []*auth.Pending{web, spk} {
+				if p != nil {
+					p.Cancel()
+				}
+			}
 		}
-		p, err := auth.New(auth.Streaming, "", a.log.With("pkg", "auth")).Start(next)
-		if err != nil {
-			return "", err
+		var err error
+		if !a.authn.LoggedIn() {
+			if web, err = a.authn.Start(""); err != nil {
+				return tui.LoginAttempt{}, err
+			}
 		}
-		speakerLogin = p
-		steps, purposes = append([]*auth.Pending{p}, steps...), append([]string{auth.Streaming.Purpose}, purposes...)
+		// A speaker approved on an earlier try needn't be approved again.
+		if speakerNeeded && speakerToken == "" {
+			next := "" // after approving, continue with the Web API login
+			if web != nil {
+				next = web.URL
+			}
+			if spk, err = auth.New(auth.Streaming, "", a.log.With("pkg", "auth")).Start(next); err != nil {
+				cancel()
+				return tui.LoginAttempt{}, err
+			}
+		}
+
+		// The speaker's approval page comes first; it hands over to the Web API's.
+		attempt := tui.LoginAttempt{Cancel: cancel}
+		if spk != nil {
+			attempt.Steps = append(attempt.Steps, tui.LoginStep{
+				Purpose: auth.Streaming.Purpose,
+				Wait: func(ctx context.Context) error {
+					tok, err := spk.Wait(ctx)
+					if err == nil {
+						speakerToken = tok.AccessToken
+					}
+					return err
+				},
+			})
+		}
+		if web != nil {
+			attempt.Steps = append(attempt.Steps, tui.LoginStep{
+				Purpose: auth.WebAPI.Purpose,
+				Wait: func(ctx context.Context) error {
+					_, err := web.Wait(ctx)
+					return err
+				},
+			})
+		}
+		switch {
+		case spk != nil:
+			attempt.URL = spk.URL
+		case web != nil:
+			attempt.URL = web.URL
+		}
+		return attempt, nil
 	}
-	if len(steps) == 0 {
-		return "", nil
-	}
-	auth.Prompt(os.Stderr, strings.Join(purposes, " and "), steps[0].URL)
-	for _, p := range steps {
-		tok, err := p.Wait(ctx)
-		if err != nil {
-			return "", err
-		}
-		if p == speakerLogin {
-			speakerToken = tok.AccessToken
-		}
-	}
-	fmt.Fprintln(os.Stderr, "Logged in.")
-	return speakerToken, nil
+	ok, err = tui.RunLogin(ctx, tui.LoginOptions{
+		Config:     a.cfg,
+		SaveConfig: func(c config.Config) error { return config.Save(a.configPath, c) },
+		Welcome:    webNeeded && (speakerNeeded || !a.cfg.Player.Enabled), // no login at all
+		WebLogin:   webNeeded,
+		Start:      start,
+		OpenURL:    auth.OpenBrowser,
+		Log:        a.log,
+	})
+	return speakerToken, ok, err
 }
 
 // startSpeaker runs sptui's built-in Spotify Connect device.

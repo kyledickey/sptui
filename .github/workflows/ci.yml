@@ -1,0 +1,74 @@
+name: ci
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    tui:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v5
+            - uses: actions/setup-go@v6
+              with:
+                  go-version-file: go.mod
+            - name: Audio libraries
+              run: |
+                  sudo apt-get update -q
+                  sudo apt-get install -y -q libogg-dev libvorbis-dev libflac-dev libmpg123-dev libasound2-dev pkg-config
+            - name: gofmt
+              run: |
+                  out=$(gofmt -l .)
+                  [ -z "$out" ] || { echo "not gofmt'd:"; echo "$out"; exit 1; }
+            - run: go vet ./...
+            - run: go build ./...
+            - name: go test
+              run: go list ./... | grep -v /internal/web | xargs go test -race
+
+    web:
+        runs-on: ubuntu-latest
+        env:
+            CGO_ENABLED: "0" # the site doesn't need the audio libraries
+        steps:
+            - uses: actions/checkout@v5
+            - uses: actions/setup-go@v6
+              with:
+                  go-version-file: go.mod
+            - uses: actions/setup-node@v5
+              with:
+                  node-version: lts/*
+            - run: go vet ./internal/web/... ./cmd/web/...
+            - run: go test ./internal/web/... ./cmd/web/...
+            - name: JavaScript parses
+              run: for f in internal/web/site/*.js; do node --check "$f"; done
+            - name: shellcheck install.sh
+              run: shellcheck internal/web/site/install.sh
+            - name: Serve and fetch every page
+              run: |
+                  go build -o /tmp/web ./cmd/web
+                  /tmp/web -addr 127.0.0.1:8080 &
+                  for _ in $(seq 50); do curl -fs -o /dev/null http://127.0.0.1:8080/ && break; sleep 0.2; done
+                  check() { # path, status, text it should contain
+                    status=$(curl -s -o /tmp/body -w '%{http_code}' "http://127.0.0.1:8080$1")
+                    [ "$status" = "$2" ] || { echo "$1: status $status, want $2"; exit 1; }
+                    grep -qF -- "$3" /tmp/body || { echo "$1: missing $3"; exit 1; }
+                    echo "ok $1"
+                  }
+                  check / 200 "Spotify in your terminal"
+                  check /install.sh 200 "#!/usr/bin/env bash"
+                  check /style.css 200 ".install"
+                  check /intros.json 200 "vinyl"
+                  check /screens/home.json 200 "{"
+                  check /nope 404 "</html>"
+                  cmp /tmp/body internal/web/site/404.html
+                  curl -fsI http://127.0.0.1:8080/install.sh | grep -i '^content-type: text/plain'
+
+    build:
+        uses: ./.github/workflows/build.yml
+        with:
+            targets: '["linux_amd64", "linux_arm64"]'

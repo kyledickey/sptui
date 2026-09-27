@@ -4,6 +4,7 @@
 package lyrics
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -109,12 +111,11 @@ func (c *Client) Lyrics(ctx context.Context, t spotify.Track) (Lyrics, error) {
 		"duration":    {strconv.Itoa(int(t.Duration().Seconds()))},
 	}
 	var rec record
-	err := c.get(ctx, "/get", q, &rec)
-	if !errors.Is(err, ErrNotFound) {
-		if err != nil {
-			return Lyrics{}, err
-		}
+	switch err := c.get(ctx, "/get", q, &rec); {
+	case err == nil:
 		return parse(rec), nil
+	case !errors.Is(err, ErrNotFound):
+		return Lyrics{}, err
 	}
 	names := []string{t.Name}
 	if short := baseName(t.Name); short != t.Name {
@@ -230,10 +231,6 @@ func parseLRC(s string) []Line {
 		}
 	}
 	// Repeated lines can make the order jump; keep it chronological.
-	for i := 1; i < len(lines); i++ {
-		for j := i; j > 0 && lines[j].At < lines[j-1].At; j-- {
-			lines[j], lines[j-1] = lines[j-1], lines[j]
-		}
-	}
+	slices.SortStableFunc(lines, func(a, b Line) int { return cmp.Compare(a.At, b.At) })
 	return lines
 }

@@ -2,6 +2,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -10,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/kyledickey/sptui/internal/atomicfile"
 )
 
 // Config is everything a user can configure. Every setting is optional.
@@ -45,8 +48,11 @@ type Player struct {
 
 // Theme holds appearance settings.
 type Theme struct {
-	// Accent is a hex colour like "#1ed760".
+	// Accent is a hex color like "#1ed760", or "cover" to take it from
+	// the playing song's cover art.
 	Accent string `toml:"accent"`
+	// ScrollTitles scrolls titles too long to fit, instead of cutting them.
+	ScrollTitles bool `toml:"scroll_titles"`
 	// CoverArt is "auto", "kitty" (real images), "blocks" (pixel style) or
 	// "off". Auto uses kitty in terminals known to support it.
 	CoverArt string `toml:"cover_art"`
@@ -56,13 +62,15 @@ type Theme struct {
 	// NowPlayingPanels lists the now-playing panels shown: 1 track,
 	// 2 lyrics, 3 up next. Pressing a number there toggles it.
 	NowPlayingPanels string `toml:"now_playing_panels"`
+	// Intro names the short animation played when sptui starts, or "off".
+	Intro string `toml:"intro"`
 }
 
 // Default returns the built-in configuration.
 func Default() Config {
 	return Config{
 		Player: Player{Enabled: true, Name: "sptui", Bitrate: 320, KeepAwake: "playing"},
-		Theme:  Theme{CoverArt: "auto", NowPlayingCover: "medium", NowPlayingPanels: "123"},
+		Theme:  Theme{CoverArt: "auto", ScrollTitles: true, NowPlayingCover: "medium", NowPlayingPanels: "123", Intro: "vinyl"},
 	}
 }
 
@@ -120,7 +128,7 @@ func Load(path string) (Config, error) {
 
 // Save writes cfg to path, replacing what was there.
 func Save(path string, cfg Config) error {
-	var b strings.Builder
+	var b bytes.Buffer
 	b.WriteString("# sptui configuration. Change it here or in sptui's settings (press ,).\n\n")
 	if err := toml.NewEncoder(&b).Encode(cfg); err != nil {
 		return err
@@ -128,11 +136,7 @@ func Save(path string, cfg Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return atomicfile.Write(path, b.Bytes(), 0o644)
 }
 
 // WriteTemplate creates a commented config file at path if none exists.
@@ -175,7 +179,11 @@ const template = `# sptui configuration. Everything here is optional.
 # keep_awake = "playing"
 
 [theme]
+# A hex color, or "cover" to follow the playing song's cover art.
 # accent = "#1ed760"
+
+# Scroll song titles that are too long to fit.
+# scroll_titles = true
 
 # Album art: "auto", "kitty" (real images in kitty, Ghostty, and tmux with
 # allow-passthrough), "blocks" (pixel style, any terminal) or "off".
@@ -188,4 +196,8 @@ const template = `# sptui configuration. Everything here is optional.
 # Now-playing panels to show: 1 track, 2 lyrics, 3 up next. Press the
 # numbers in the view to toggle them.
 # now_playing_panels = "123"
+
+# The short animation played when sptui starts, or "off". See the list in
+# sptui's settings (press ,).
+# intro = "vinyl"
 `

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
 	"github.com/kyledickey/sptui/internal/spotify"
 )
 
@@ -39,7 +40,8 @@ type player struct {
 	fetching  bool
 	changedAt time.Time // last optimistic local edit; older fetches are stale
 
-	likedURI string // track the liked flag belongs to
+	since    time.Time // when the current track came on screen, for scrolling its title
+	likedURI string    // track the liked flag belongs to
 	liked    bool
 
 	volumeSeq int           // debounces volume changes
@@ -125,14 +127,18 @@ type (
 	}
 )
 
+// schedule is tea.Tick. Tests swap it to drop the ticks they slow to an hour,
+// so the test driver can wait for every command to finish.
+var schedule = tea.Tick
+
 func tick() tea.Cmd { return tickAfter(tickEvery) }
 
 func tickAfter(d time.Duration) tea.Cmd {
-	return tea.Tick(d, func(t time.Time) tea.Msg { return tickMsg(t) })
+	return schedule(d, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
 func refreshSoon() tea.Cmd {
-	return tea.Tick(settleDelay, func(time.Time) tea.Msg { return refreshMsg{} })
+	return schedule(settleDelay, func(time.Time) tea.Msg { return refreshMsg{} })
 }
 
 func (m *Model) fetchPlayback() tea.Cmd {
@@ -187,15 +193,25 @@ func (m *Model) play(opts spotify.PlayOptions, fallback []string) tea.Cmd {
 	m.log.Debug("play", "context", opts.ContextURI, "uris", len(opts.URIs), "offset", opts.OffsetURI)
 	local := m.wantLocal()
 	return m.act("play", "", func(ctx context.Context) error {
-		if local {
-			dev, err := m.localDevice(ctx)
-			if err != nil {
-				return err
-			}
-			opts.DeviceID = dev.ID
+		if err := m.playHere(ctx, local, &opts); err != nil {
+			return err
 		}
 		return m.startPlayback(ctx, opts, fallback)
 	})
+}
+
+// playHere points opts at sptui's own speaker when local is set (see
+// wantLocal), waiting for the speaker if it's still connecting.
+func (m *Model) playHere(ctx context.Context, local bool, opts *spotify.PlayOptions) error {
+	if !local {
+		return nil
+	}
+	dev, err := m.localDevice(ctx)
+	if err != nil {
+		return err
+	}
+	opts.DeviceID = dev.ID
+	return nil
 }
 
 // wantLocal reports whether playback should move to sptui's own speaker: it
@@ -244,8 +260,7 @@ func (m *Model) startPlayback(ctx context.Context, opts spotify.PlayOptions, fal
 		opts.DeviceID = dev.ID
 		err = m.backend.Play(ctx, opts)
 	}
-	var apiErr *spotify.Error
-	if opts.ContextURI != "" && len(fallback) > 0 && errors.As(err, &apiErr) && apiErr.Status < 500 {
+	if apiErr, ok := errors.AsType[*spotify.Error](err); ok && apiErr.Status < 500 && opts.ContextURI != "" && len(fallback) > 0 {
 		m.log.Info("context playback failed, playing tracks instead", "context", opts.ContextURI, "err", err)
 		opts.OffsetIndex = max(0, slices.Index(fallback, opts.OffsetURI))
 		opts.URIs, opts.ContextURI, opts.OffsetURI = fallback, "", ""

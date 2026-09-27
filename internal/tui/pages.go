@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/kyledickey/sptui/internal/spotify"
@@ -57,6 +59,27 @@ func artistsPage(b Backend) *page {
 	return p
 }
 
+func podcastsPage(b Backend) *page {
+	p := newPage("Podcasts", kindShow, func(ctx context.Context, off int) (chunk, error) {
+		pg, err := b.SavedShows(ctx, off)
+		return fromPage(pg, err, showRow)
+	})
+	p.empty = "You don't follow any podcasts yet. Search with / and press l on one to follow."
+	return p
+}
+
+func episodesPage(b Backend, me spotify.User) *page {
+	p := newPage("Your Episodes", kindTrack, func(ctx context.Context, off int) (chunk, error) {
+		pg, err := b.SavedEpisodes(ctx, off)
+		return fromPage(pg, err, trackRow)
+	})
+	p.context = spotify.YourEpisodesURI(me.ID)
+	p.episodes = true
+	p.subtitle = "Podcast episodes you've saved"
+	p.empty = "No saved episodes yet. Press l on an episode to save it."
+	return p
+}
+
 // nowPlayingPage is the big now-playing view. Its rows are the queue.
 func nowPlayingPage(b Backend) *page {
 	p := newPage("Now Playing", kindTrack, func(ctx context.Context, _ int) (chunk, error) {
@@ -75,10 +98,12 @@ func playlistPage(b Backend, pl spotify.Playlist) *page {
 		return fromPage(pg, err, trackRow)
 	})
 	p.context = pl.URI
-	p.self = ptr(playlistRow(pl))
+	p.self = new(playlistRow(pl))
 	p.cover = spotify.CoverURL(pl.Images, coverSource)
 	p.about = cleanDescription(pl.Description)
 	p.subtitle = fmt.Sprintf("Playlist · %s", pl.Owner.Name())
+	p.kicker = "PLAYLIST · BY " + strings.ToUpper(pl.Owner.Name())
+	p.strip = true
 	p.empty = "This playlist is empty."
 	return p
 }
@@ -89,31 +114,75 @@ func albumPage(b Backend, al spotify.Album) *page {
 		return fromPage(pg, err, trackRow)
 	})
 	p.context = al.URI
-	p.self = ptr(albumRow(al))
+	p.self = new(albumRow(al))
 	p.cover = spotify.CoverURL(al.Images, coverSource)
 	p.noAlbum = true
+	p.lengths = true
 	p.subtitle = joinNonEmpty(" · ", "Album", spotify.JoinArtists(al.Artists), al.Year())
+	p.kicker = strings.ToUpper(joinNonEmpty(" · ", cmp.Or(al.AlbumType, "album"), al.Year()))
 	return p
 }
 
 func artistPage(b Backend, ar spotify.Artist) *page {
 	p := newPage(ar.Name, kindAlbum, func(ctx context.Context, off int) (chunk, error) {
 		pg, err := b.ArtistAlbums(ctx, ar.ID, off)
-		return fromPage(pg, err, albumRow)
+		c, err := fromPage(pg, err, albumRow)
+		if err != nil || off > 0 {
+			return c, err
+		}
+		// The first page also fills in the hero. Neither lookup is essential.
+		if len(ar.Images) == 0 || ar.Followers == nil {
+			// Opened from a song or album, which only name their artists.
+			if full, err := b.Artist(ctx, ar.ID); err == nil {
+				c.artist = &full
+			}
+		}
+		// How much the user plays them, from what's already cached.
+		if recent, err := b.RecentlyPlayed(ctx); err == nil {
+			n := 0
+			for _, t := range recent {
+				if slices.ContainsFunc(t.Artists, func(a spotify.Artist) bool { return a.ID == ar.ID }) {
+					n++
+				}
+			}
+			c.artistPlays = &n
+		}
+		return c, nil
 	})
 	p.context = ar.URI
-	p.self = ptr(artistRow(ar))
+	p.self = new(artistRow(ar))
 	p.cover = spotify.CoverURL(ar.Images, coverSource)
 	p.about = strings.Join(ar.Genres, ", ")
 	p.subtitle = "Artist · albums and singles"
+	p.grid = true
+	p.tabs = artistTabs
+	p.empty = "No releases here."
+	return p
+}
+
+func showPage(b Backend, sh spotify.Show) *page {
+	p := newPage(sh.Name, kindTrack, func(ctx context.Context, off int) (chunk, error) {
+		pg, err := b.ShowEpisodes(ctx, sh, off)
+		return fromPage(pg, err, trackRow)
+	})
+	p.context = sh.URI
+	p.self = new(showRow(sh))
+	p.cover = spotify.CoverURL(sh.Images, coverSource)
+	p.about = cleanDescription(sh.Description)
+	p.noAlbum = true
+	p.episodes = true
+	p.subtitle = joinNonEmpty(" · ", "Podcast", sh.Publisher)
+	p.kicker = strings.ToUpper(joinNonEmpty(" · ", "podcast", sh.Publisher))
+	p.empty = "This podcast has no episodes."
 	return p
 }
 
 func searchPage() *page {
 	p := newPage("Search", kindHeader, nil)
 	p.isSearch = true
+	p.tabs = searchTabs
 	p.next = -1
-	p.empty = "Type to search songs, artists, albums and playlists."
+	p.empty = "Type to search songs, artists, albums, playlists and podcasts."
 	return p
 }
 
@@ -144,10 +213,10 @@ func searchRows(res spotify.SearchResults) []row {
 	section("Artists", mapRows(res.Artists, artistRow))
 	section("Albums", mapRows(res.Albums, albumRow))
 	section("Playlists", mapRows(res.Playlists, playlistRow))
+	section("Podcasts", mapRows(res.Shows, showRow))
+	section("Episodes", mapRows(res.Episodes, trackRow))
 	return rows
 }
-
-func ptr[T any](v T) *T { return &v }
 
 func mapRows[T any](items []T, toRow func(T) row) []row {
 	rows := make([]row, len(items))
@@ -166,6 +235,8 @@ func openRow(b Backend, r row) *page {
 		return artistPage(b, r.artist)
 	case kindPlaylist:
 		return playlistPage(b, r.playlist)
+	case kindShow:
+		return showPage(b, r.show)
 	}
 	return nil
 }

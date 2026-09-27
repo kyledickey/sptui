@@ -225,3 +225,40 @@ func TestYear(t *testing.T) {
 		}
 	}
 }
+
+func TestShowEpisodesFillsShow(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/shows/s1/episodes" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		io.WriteString(w, `{"items":[{"name":"Ep","uri":"spotify:episode:e1","type":"episode","release_date":"2026-09-01"},null],"total":1}`)
+	})
+	pg, err := c.ShowEpisodes(context.Background(), Show{ID: "s1", Name: "Pod", URI: "spotify:show:s1"}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pg.Items) != 1 {
+		t.Fatalf("items = %+v", pg.Items)
+	}
+	ep := pg.Items[0]
+	if !ep.IsEpisode() || ep.ArtistNames() != "Pod" || ep.ReleaseDate != "2026-09-01" {
+		t.Fatalf("episode = %+v", ep)
+	}
+}
+
+func TestSearchIncludesPodcasts(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("type"); !strings.Contains(got, "show") || !strings.Contains(got, "episode") {
+			t.Errorf("type = %q", got)
+		}
+		io.WriteString(w, `{"shows":{"items":[{"name":"Pod","uri":"spotify:show:s1","publisher":"P","total_episodes":3}]},
+			"episodes":{"items":[null,{"name":"Ep","uri":"spotify:episode:e1","type":"episode"}]}}`)
+	})
+	res, err := c.Search(context.Background(), "pod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Shows) != 1 || res.Shows[0].TotalEpisodes != 3 || len(res.Episodes) != 1 || !res.Episodes[0].IsEpisode() {
+		t.Fatalf("results = %+v", res)
+	}
+}

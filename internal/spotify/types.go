@@ -31,11 +31,12 @@ func (u User) Name() string {
 
 // Artist is a Spotify artist. Simplified artist objects only carry ID, Name and URI.
 type Artist struct {
-	ID     string   `json:"id"`
-	Name   string   `json:"name"`
-	URI    string   `json:"uri"`
-	Genres []string `json:"genres"`
-	Images []Image  `json:"images"`
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	URI       string   `json:"uri"`
+	Genres    []string `json:"genres"`
+	Images    []Image  `json:"images"`
+	Followers *Count   `json:"followers,omitempty"`
 }
 
 // Album is a Spotify album. Tracks is only set when fetching a single album.
@@ -59,27 +60,70 @@ func (a Album) Year() string {
 
 var yearIn = regexp.MustCompile(`\b(1[89]|2[0-9])[0-9]{2}\b`)
 
-// Show is the podcast an episode belongs to.
+// Show is a podcast. Episodes carry a simplified one with only ID, Name
+// and URI.
 type Show struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	URI  string `json:"uri"`
+	ID            string  `json:"id"`
+	Name          string  `json:"name"`
+	URI           string  `json:"uri"`
+	Publisher     string  `json:"publisher"`
+	Description   string  `json:"description"`
+	Images        []Image `json:"images"`
+	TotalEpisodes int     `json:"total_episodes"`
 }
 
 // Track is a playable item. Episodes decode into Track too; they carry Show
 // instead of Album and Artists.
 type Track struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	URI         string   `json:"uri"`
-	Type        string   `json:"type"`
-	Artists     []Artist `json:"artists"`
-	Album       Album    `json:"album"`
-	Show        *Show    `json:"show,omitempty"`
-	DurationMS  int      `json:"duration_ms"`
-	TrackNumber int      `json:"track_number"`
-	Explicit    bool     `json:"explicit"`
-	IsLocal     bool     `json:"is_local"`
+	ID          string       `json:"id"`
+	Name        string       `json:"name"`
+	URI         string       `json:"uri"`
+	Type        string       `json:"type"`
+	Artists     []Artist     `json:"artists"`
+	Album       Album        `json:"album"`
+	Show        *Show        `json:"show,omitempty"`
+	DurationMS  int          `json:"duration_ms"`
+	TrackNumber int          `json:"track_number"`
+	Explicit    bool         `json:"explicit"`
+	IsLocal     bool         `json:"is_local"`
+	ReleaseDate string       `json:"release_date"` // episodes only
+	Images      []Image      `json:"images"`       // episodes only
+	ResumePoint *ResumePoint `json:"resume_point,omitempty"`
+
+	// Set on tracks from RecentlyPlayed: when it played and what from.
+	PlayedAt   time.Time `json:"played_at,omitzero"`
+	PlayedFrom string    `json:"played_from,omitempty"`
+}
+
+// ResumePoint is how far the user got through an episode.
+type ResumePoint struct {
+	FullyPlayed      bool `json:"fully_played"`
+	ResumePositionMS int  `json:"resume_position_ms"`
+}
+
+// Released is when an episode came out, or zero if unknown.
+func (t Track) Released() time.Time {
+	d, _ := time.Parse(time.DateOnly, t.ReleaseDate)
+	return d
+}
+
+// IsEpisode reports whether t is a podcast episode rather than a song.
+func (t Track) IsEpisode() bool {
+	return t.Type == "episode" || strings.HasPrefix(t.URI, "spotify:episode:")
+}
+
+// Cover returns the track's artwork: the album cover, or for an episode
+// its own image or its show's.
+func (t Track) Cover() []Image {
+	switch {
+	case len(t.Album.Images) > 0:
+		return t.Album.Images
+	case len(t.Images) > 0:
+		return t.Images
+	case t.Show != nil:
+		return t.Show.Images
+	}
+	return nil
 }
 
 // Duration returns the track length.
@@ -197,6 +241,8 @@ type SearchResults struct {
 	Albums    []Album
 	Artists   []Artist
 	Playlists []Playlist
+	Shows     []Show
+	Episodes  []Track
 }
 
 // PlayOptions describes what to start playing. Set either ContextURI (an
@@ -209,6 +255,9 @@ type PlayOptions struct {
 	OffsetURI   string
 	OffsetIndex int
 }
+
+// DJURI is Spotify's DJ: a playlist that talks between songs.
+const DJURI = "spotify:playlist:37i9dQZF1EYkqdzj48dyYq"
 
 // CoverURL picks the smallest image at least minSize pixels wide, or the
 // largest one if none is big enough. Images with unknown sizes (0) count as
@@ -243,6 +292,11 @@ func ID(uri string) string {
 // LikedSongsURI is the playback context for a user's saved tracks.
 func LikedSongsURI(userID string) string {
 	return "spotify:user:" + userID + ":collection"
+}
+
+// YourEpisodesURI is the playback context for a user's saved episodes.
+func YourEpisodesURI(userID string) string {
+	return LikedSongsURI(userID) + ":your-episodes"
 }
 
 type freshKey struct{}
