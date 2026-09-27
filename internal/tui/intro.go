@@ -42,7 +42,7 @@ func (m *Model) playIntro(name string, preview bool) tea.Cmd {
 }
 
 func introTick() tea.Cmd {
-	return tea.Tick(intro.Frame, func(time.Time) tea.Msg { return introTickMsg{} })
+	return schedule(intro.Frame, func(time.Time) tea.Msg { return introTickMsg{} })
 }
 
 // introUpdate advances or ends the intro. It reports whether msg was

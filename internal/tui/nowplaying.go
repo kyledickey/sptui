@@ -223,7 +223,7 @@ func (m *Model) setLyrics(msg lyricsMsg) tea.Cmd {
 		m.log.Warn("lyrics service unavailable, will retry", "err", msg.err, "in", wait)
 		m.lyrics = st
 		uri := msg.uri
-		return tea.Tick(wait, func(time.Time) tea.Msg { return lyricsRetryMsg{uri} })
+		return schedule(wait, func(time.Time) tea.Msg { return lyricsRetryMsg{uri} })
 	default:
 		m.log.Warn("lyrics", "err", msg.err)
 	}
@@ -619,7 +619,7 @@ func (m *Model) viewLyrics(w, h int) string {
 }
 
 // notice fills a w×h box with a centred message: a glyph, a title and a
-// quieter explanation. tone colours the glyph and title.
+// quieter explanation. tone colors the glyph and title.
 func (m *Model) notice(w, h int, glyph, title, detail string, tone lipgloss.Style) string {
 	center := lipgloss.NewStyle().Width(w).Align(lipgloss.Center)
 	var parts []string

@@ -469,7 +469,7 @@ func (m *Model) changeVolume(delta int) tea.Cmd {
 	m.player.changedAt = time.Now()
 	m.player.volumeSeq++
 	seq := m.player.volumeSeq
-	return tea.Tick(volumeDebounce, func(time.Time) tea.Msg { return volumeMsg{seq: seq, percent: v} })
+	return schedule(volumeDebounce, func(time.Time) tea.Msg { return volumeMsg{seq: seq, percent: v} })
 }
 
 func (m *Model) toggleShuffle() tea.Cmd {

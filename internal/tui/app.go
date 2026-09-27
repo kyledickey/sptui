@@ -107,7 +107,7 @@ type Model struct {
 	spinner  spinner.Model
 	spinning bool
 	covers   covers
-	swatches swatches // cover colours
+	swatches swatches // cover colors
 
 	intro *introPlay // the startup animation, while it plays
 	bg    string     // terminal background as hex, once known
@@ -170,6 +170,13 @@ type (
 	}
 )
 
+// Tests change these: the cursor's blinking never ends, and the spinner
+// would hold up every step.
+var (
+	blinkCursor    = true
+	loadingSpinner = spinner.MiniDot
+)
+
 // New returns the root model.
 func New(b Backend, opts Options) *Model {
 	in := textinput.New()
@@ -183,7 +190,7 @@ func New(b Backend, opts Options) *Model {
 		sidebar:     newSidebar(),
 		input:       in,
 		focus:       focusMain,
-		spinner:     spinner.New(spinner.WithSpinner(spinner.MiniDot)),
+		spinner:     spinner.New(spinner.WithSpinner(loadingSpinner)),
 		covers:      newCovers(artMode(opts.Config)),
 		swatches:    newSwatches(),
 		cfg:         opts.Config,
@@ -220,6 +227,7 @@ func (m *Model) setTheme(dark bool) {
 	s.Focused.Text = m.st.row
 	s.Focused.Placeholder = m.st.rowMuted
 	s.Cursor.Color = m.st.accent
+	s.Cursor.Blink = blinkCursor
 	m.input.SetStyles(s)
 }
 
@@ -569,7 +577,7 @@ func retryLater(err error, cmd tea.Cmd) tea.Cmd {
 	if apiErr, ok := errors.AsType[*spotify.Error](err); ok && apiErr.RetryAfter > 0 {
 		wait = apiErr.RetryAfter
 	}
-	return tea.Tick(wait, func(time.Time) tea.Msg { return cmd() })
+	return schedule(wait, func(time.Time) tea.Msg { return cmd() })
 }
 
 func (m *Model) setStatus(text string, isErr bool) {
@@ -766,7 +774,7 @@ func (m *Model) updateInput(msg tea.Msg) tea.Cmd {
 	case inputSearch:
 		m.searchSeq++
 		seq := m.searchSeq
-		return tea.Batch(cmd, tea.Tick(searchDebounce, func(time.Time) tea.Msg { return debounceMsg{seq} }))
+		return tea.Batch(cmd, schedule(searchDebounce, func(time.Time) tea.Msg { return debounceMsg{seq} }))
 	}
 	return cmd
 }

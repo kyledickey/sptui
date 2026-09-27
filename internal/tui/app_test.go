@@ -2,7 +2,6 @@ package tui
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -36,22 +35,29 @@ func withArt(mode art.Mode) config.Config {
 var _ Backend = (*demo.Backend)(nil)
 
 // driver runs a model like Bubble Tea would, executing commands and feeding
-// their messages back in until things go quiet. Slow commands (the progress
-// tick) are left behind.
+// their messages back in until every command has finished.
 type driver struct {
-	t    *testing.T
-	m    *Model
-	raw  []string      // sequences written straight to the terminal
-	idle time.Duration // quiet time that counts as settled; default idle
+	t   *testing.T
+	m   *Model
+	raw []string // sequences written straight to the terminal
 }
 
-// idle is how long run waits for another message before deciding the
-// model has settled.
-const idle = 50 * time.Millisecond
+// stuck is how long run waits for a message before giving up on the
+// commands still running.
+const stuck = 10 * time.Second
 
 func init() {
 	tickEvery, lyricsTick, animTick = time.Hour, time.Hour, time.Hour // ticks would never settle
 	settleDelay, searchDebounce, volumeDebounce, localGrace = time.Millisecond, time.Millisecond, time.Millisecond, 0
+	blinkCursor = false
+	loadingSpinner.FPS = time.Millisecond
+	// Drop the hour-long ticks rather than leave them pending forever.
+	schedule = func(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd {
+		if d >= time.Hour {
+			return nil
+		}
+		return tea.Tick(d, fn)
+	}
 }
 
 func newDriver(t *testing.T, w, h int) *driver {
@@ -137,8 +143,8 @@ func (d *driver) run(cmd tea.Cmd) {
 		case msg := <-msgs:
 			pending--
 			deliver(msg)
-		case <-time.After(cmp.Or(d.idle, idle)):
-			return
+		case <-time.After(stuck):
+			d.t.Fatalf("%d commands still running after %s", pending, stuck)
 		}
 	}
 }
@@ -705,7 +711,7 @@ func TestSettings(t *testing.T) {
 	if d.m.cfg.Theme.CoverArt != "off" || d.m.covers.mode != art.Off {
 		t.Fatalf("album art = %q, covers %v", d.m.cfg.Theme.CoverArt, d.m.covers.mode)
 	}
-	p.cursor = d.settingIndex("Accent colour")
+	p.cursor = d.settingIndex("Accent color")
 	before := d.m.st.accent
 	d.press("enter")
 	if d.m.cfg.Theme.Accent != "#4da3ff" || d.m.st.accent == before {
@@ -746,7 +752,7 @@ func TestSettingsLayoutFits(t *testing.T) {
 	for _, sz := range [][2]int{{60, 16}, {80, 24}, {140, 45}} {
 		d := newDriverWith(t, sz[0], sz[1], demo.New(), Options{})
 		d.press(",")
-		for _, label := range []string{"Accent colour", "Your own Spotify app"} {
+		for _, label := range []string{"Accent color", "Your own Spotify app"} {
 			d.page().cursor = d.settingIndex(label)
 			lines := strings.Split(d.m.View().Content, "\n")
 			if len(lines) != sz[1] {
@@ -922,7 +928,6 @@ func sentImages(t *testing.T, raw []string) []image.Config {
 
 func TestKittyImagesFillTheirCells(t *testing.T) {
 	d := newDriverWith(t, 140, 45, demo.New(), Options{Config: withArt(art.Kitty)})
-	d.idle = time.Second // encoding a big PNG is slow under -race
 	d.run(func() tea.Msg { return uv.CellSizeEvent{Width: 9, Height: 18} })
 	d.press("enter", "o")
 	l := d.m.nowPlayingLayout()

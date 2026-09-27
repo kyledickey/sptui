@@ -155,14 +155,22 @@ func Prompt(out io.Writer, purpose, url string) {
 	_ = openBrowser(url)
 }
 
+// OpenBrowser opens u in the user's browser.
+func OpenBrowser(u string) error { return openBrowser(u) }
+
 // Pending is a login waiting for the user to approve it in the browser.
 type Pending struct {
-	URL  string // the page to visit
-	wait func(ctx context.Context) (*oauth2.Token, error)
+	URL   string // the page to visit
+	wait  func(ctx context.Context) (*oauth2.Token, error)
+	close func()
 }
 
 // Wait waits for the user to approve, then saves and returns the token.
 func (p *Pending) Wait(ctx context.Context) (*oauth2.Token, error) { return p.wait(ctx) }
+
+// Cancel gives up on the login without waiting, freeing its port for
+// another try. Wait does this itself; Cancel is for logins never waited on.
+func (p *Pending) Cancel() { p.close() }
 
 // Start begins a login: it listens for Spotify's redirect and returns the
 // page the user must visit. After approving, the browser is sent to next if
@@ -247,7 +255,11 @@ func (a *Authenticator) Start(next string) (*Pending, error) {
 		a.log.Info("logged in", "purpose", a.app.Purpose, "expires", tok.Expiry)
 		return tok, nil
 	}
-	return &Pending{URL: conf.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier)), wait: wait}, nil
+	return &Pending{
+		URL:   conf.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier)),
+		wait:  wait,
+		close: func() { srv.Close() },
+	}, nil
 }
 
 // Logout deletes the saved token.

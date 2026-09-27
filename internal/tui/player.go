@@ -127,14 +127,18 @@ type (
 	}
 )
 
+// schedule is tea.Tick. Tests swap it to drop the ticks they slow to an hour,
+// so the test driver can wait for every command to finish.
+var schedule = tea.Tick
+
 func tick() tea.Cmd { return tickAfter(tickEvery) }
 
 func tickAfter(d time.Duration) tea.Cmd {
-	return tea.Tick(d, func(t time.Time) tea.Msg { return tickMsg(t) })
+	return schedule(d, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
 func refreshSoon() tea.Cmd {
-	return tea.Tick(settleDelay, func(time.Time) tea.Msg { return refreshMsg{} })
+	return schedule(settleDelay, func(time.Time) tea.Msg { return refreshMsg{} })
 }
 
 func (m *Model) fetchPlayback() tea.Cmd {
