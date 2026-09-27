@@ -212,10 +212,10 @@ func TestSwatch(t *testing.T) {
 		t.Fatalf("red cover: %+v", red)
 	}
 	if r, g, b, ok := parseHex(red.vivid); !ok || r <= g || r <= b {
-		t.Fatalf("vivid colour of a red cover isn't red: %s", red.vivid)
+		t.Fatalf("vivid color of a red cover isn't red: %s", red.vivid)
 	}
 	if grey := swatchOf(solid(color.RGBA{120, 120, 120, 255})); grey.vivid != "" {
-		t.Fatalf("grey cover has a vivid colour %s", grey.vivid)
+		t.Fatalf("grey cover has a vivid color %s", grey.vivid)
 	}
 }
 

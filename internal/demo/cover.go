@@ -17,7 +17,7 @@ func coverImages(seed string) []spotify.Image {
 }
 
 // CoverArt draws a made-up cover: a diagonal gradient with a sun and rings,
-// coloured from the URL so each album looks different but stays the same.
+// colored from the URL so each album looks different but stays the same.
 func (b *Backend) CoverArt(ctx context.Context, url string) (image.Image, error) {
 	if err := b.wait(ctx); err != nil {
 		return nil, err
@@ -56,7 +56,7 @@ func mix(a, b color.RGBA, t float64) color.RGBA {
 	return color.RGBA{l(a.R, b.R), l(a.G, b.G), l(a.B, b.B), 255}
 }
 
-// hsl converts hue, saturation and lightness (all 0–1) to a colour.
+// hsl converts hue, saturation and lightness (all 0–1) to a color.
 func hsl(h, s, l float64) color.RGBA {
 	c := (1 - math.Abs(2*l-1)) * s
 	x := c * (1 - math.Abs(math.Mod(h*6, 2)-1))

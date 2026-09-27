@@ -38,7 +38,7 @@ func demoScreens() map[string]string {
 // which the intros assume too.
 const screenBG = "#101216"
 
-// screen is a screen as cells for the website to draw. Colours are
+// screen is a screen as cells for the website to draw. Colors are
 // indexes into Colors, plus one, so 0 is the default.
 type screen struct {
 	W      int      `json:"w"`

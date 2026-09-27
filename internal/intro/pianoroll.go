@@ -217,7 +217,7 @@ func (p *Play) pianoScene(t float64) *canvas {
 		}
 		if age, ok := lit[pitch]; ok {
 			hot := grad(x)
-			on := mixHex(text, hot, min(age/140, 1)) // struck: white hot, then its colour
+			on := mixHex(text, hot, min(age/140, 1)) // struck: white hot, then its color
 			return on, mixHex(hot, "#000000", 0.35)
 		}
 		return body, lip

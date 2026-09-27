@@ -112,8 +112,8 @@ func newStyles(accentHex string, dark bool) styles {
 	return s
 }
 
-// inkOn is a text colour that reads on a background of hex: near-black on
-// light colours, white on dark ones.
+// inkOn is a text color that reads on a background of hex: near-black on
+// light colors, white on dark ones.
 func inkOn(hex string) color.Color {
 	r, g, b, ok := parseHex(hex)
 	if ok && 0.2126*r+0.7152*g+0.0722*b < 0.5 {

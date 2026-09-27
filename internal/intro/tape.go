@@ -59,7 +59,7 @@ const (
 	tapeWinY               = 24     // top of the display's letters; even, so they line up with cells
 	tapeHello              = 15     // row of the greeting
 
-	// Neutral darks for the hardware, so the theme colours do the talking.
+	// Neutral darks for the hardware, so the theme colors do the talking.
 	tapePlate   = "#25282e" // deck plate behind the reels
 	tapeChassis = "#2b2e35" // control strip
 	tapeLip     = "#3a3e47"

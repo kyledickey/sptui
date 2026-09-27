@@ -132,7 +132,7 @@ func (p *Play) vinylScene(t float64) *canvas {
 			phi := math.Atan2(v, u)
 			lu, lv := (float64(x)-vinylCX)/vinylLabelX, (float64(y)-cy)/vinylLabelY
 			if math.Hypot(lu, lv) <= 1 {
-				// The label: a colour wheel that turns with the record.
+				// The label: a color wheel that turns with the record.
 				c.pixel(x, y, mixHex(accent, purple, (1+math.Cos(math.Atan2(lv, lu)-theta))/2))
 				continue
 			}

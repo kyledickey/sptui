@@ -1,6 +1,6 @@
 // Package art draws cover images in the terminal: as real images with the
 // kitty graphics protocol where the terminal supports it, otherwise as
-// coloured half-block "pixels" that work in any true-colour terminal.
+// colored half-block "pixels" that work in any true-color terminal.
 //
 // Both render to plain cells, so they fit Bubble Tea's cell-based renderer:
 // kitty images use Unicode placeholders, which the terminal replaces with the
@@ -89,7 +89,7 @@ func BlockArt(img image.Image, cols, rows int) string {
 }
 
 // resize scales img to w×h by averaging the source pixels under each target
-// pixel, which keeps colours true when shrinking a lot.
+// pixel, which keeps colors true when shrinking a lot.
 func resize(img image.Image, w, h int) [][]color.RGBA {
 	src := img.Bounds()
 	out := make([][]color.RGBA, h)

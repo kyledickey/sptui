@@ -178,7 +178,7 @@ type page struct {
 	kicker     string // a small heading over the title, e.g. "ALBUM · 2016"
 	lengths    bool   // draw each song's length as a bar (album pages)
 	grid       bool   // tiles in a grid, newest first (an artist's releases)
-	strip      bool   // a strip of every song's cover colour (playlists)
+	strip      bool   // a strip of every song's cover color (playlists)
 	home       bool   // the home page
 	homeData   *homeData
 	tabs       []searchTab // kinds of row to show, picked with 1-9

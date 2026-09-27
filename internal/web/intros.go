@@ -13,12 +13,12 @@ import (
 	"github.com/kyledickey/sptui/internal/tui"
 )
 
-// introFrame is one frame of an animation for the website to draw. Colours
+// introFrame is one frame of an animation for the website to draw. Colors
 // are indexes into introAnim.Colors, plus one, so 0 is none.
 type introFrame struct {
 	Fade   float64  `json:"fade"`
 	Pixels []int    `json:"px"`    // 2H rows of W
-	Cells  [][4]any `json:"cells"` // x, y, char, colour, for cells with one
+	Cells  [][4]any `json:"cells"` // x, y, char, color, for cells with one
 }
 
 type introAnim struct {

@@ -16,7 +16,7 @@ import (
 // Page headers. An album, playlist, artist or podcast gets a hero: its
 // cover with a kicker, the title, a line about it, some numbers and
 // keycap buttons to play or shuffle it. Artists spell their name in big
-// letters, playlists get a strip of their songs' cover colours, and search
+// letters, playlists get a strip of their songs' cover colors, and search
 // has tabs for each kind of result and a card for the top one.
 
 const (
@@ -384,9 +384,9 @@ func (m *Model) chips(tags []string) string {
 	return strings.Join(parts, " ")
 }
 
-// viewStrip is a playlist's colour strip: every song as a slice of its
-// cover's colour, with a marker under the one playing. Two lines.
-func (m *Model) viewColourStrip(p *page, w int) [2]string {
+// viewStrip is a playlist's color strip: every song as a slice of its
+// cover's color, with a marker under the one playing. Two lines.
+func (m *Model) viewColorStrip(p *page, w int) [2]string {
 	var tracks []spotify.Track
 	for _, r := range p.rows {
 		if r.kind == kindTrack {

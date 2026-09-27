@@ -194,7 +194,7 @@ func (p *Play) frogScene(t float64) *canvas {
 	c.sprite(x0, y0, sprite, map[byte]string{'G': accent, 'S': mixHex(accent, introDark, 0.35), 'D': introDark})
 
 	// Each landing stamps a letter of the banner into place: it drops a
-	// row, flashes white, and settles into colour. The gulp sends a
+	// row, flashes white, and settles into color. The gulp sends a
 	// highlight sweeping across it.
 	left := (frogW - sptuiW) / 2
 	for i := range frogBars {

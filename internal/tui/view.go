@@ -242,7 +242,7 @@ func (m *Model) viewFooter() string {
 
 // viewSidebar lists the library and playlists. Headings sit on slabs like
 // the logo's, the selection is a solid accent slab, each playlist shows a
-// block of its cover's colour, and whatever is playing gets an equalizer.
+// block of its cover's color, and whatever is playing gets an equalizer.
 func (m *Model) viewSidebar() string {
 	w, h := m.sidebarWidth(), m.bodyHeight()
 	inner, rows := w-2, h-2
@@ -298,7 +298,7 @@ func (m *Model) sidebarHeading(it navItem, w int) string {
 	return spread(tag, right, w)
 }
 
-// sidebarRow is one entry: an icon (or a playlist's colour), the name, an
+// sidebarRow is one entry: an icon (or a playlist's color), the name, an
 // equalizer when it's playing, and a playlist's song count.
 func (m *Model) sidebarRow(it navItem, w int, playing, selected, active bool) string {
 	text, faded := m.st.rowMuted, m.st.off
@@ -420,7 +420,7 @@ func (m *Model) viewMain() string {
 
 // pageHeader renders the top of a page: a hero (cover with the title,
 // numbers and buttons beside it) when there is one, else a title block;
-// then a playlist's colour strip, and the column names. It is
+// then a playlist's color strip, and the column names. It is
 // headerHeight(p) lines.
 func (m *Model) pageHeader(p *page, cw int) []string {
 	// Right of the title: a loading indicator or a count.
@@ -476,7 +476,7 @@ func (m *Model) pageHeader(p *page, cw int) []string {
 		}
 	}
 	if p.strip {
-		strip := m.viewColourStrip(p, cw)
+		strip := m.viewColorStrip(p, cw)
 		lines = append(lines, strip[0], strip[1])
 	} else {
 		lines = append(lines, "")
@@ -617,7 +617,7 @@ func (m *Model) renderRow(p *page, i, w int, focused bool) string {
 	flex, tail := columns(r.kind, w, !p.noAlbum)
 	var lead, tailText string
 	var cells []string
-	styled := map[int]string{} // cells drawn with their own colours
+	styled := map[int]string{} // cells drawn with their own colors
 	primary, secondary := bg(m.st.row), bg(m.st.rowMuted)
 	if playing {
 		primary = bg(m.st.rowPlaying.Bold(true))

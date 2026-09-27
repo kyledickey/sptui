@@ -11,7 +11,7 @@ import (
 )
 
 // The help screen is a keyboard. Keys that do something are solid caps
-// with a word on them, coloured by what they're for; the rest are dim.
+// with a word on them, colored by what they're for; the rest are dim.
 // Shift and ctrl are layers you flip through with tab. Pressing a key
 // picks it out and says what it does, instead of doing it. Small terminals
 // get the plain list.
@@ -106,7 +106,7 @@ func capOf(s string) (id string, layer int) {
 	return s, layerBase
 }
 
-// What a key is for, which picks its colour.
+// What a key is for, which picks its color.
 const (
 	forMoving = iota
 	forPlaying
@@ -290,7 +290,7 @@ func (m *Model) viewHelp() string {
 	}
 	boardW := int(math.Round(boardUnits*float64(unit))) - 1
 
-	// Title, with the layers as tabs and a colour key.
+	// Title, with the layers as tabs and a color key.
 	var tabs []string
 	for i, n := range layerNames {
 		if i == m.helpLayer {

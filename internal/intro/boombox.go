@@ -33,7 +33,7 @@ const (
 	boomboxWinY  = 4 // from the body's top, in pixels
 	boomboxHello = 15
 
-	// Neutral darks for the chassis, so the theme colours do the talking.
+	// Neutral darks for the chassis, so the theme colors do the talking.
 	boomboxChassis = "#2b2e35"
 	boomboxLip     = "#3a3e47"
 	boomboxBase    = "#202329"

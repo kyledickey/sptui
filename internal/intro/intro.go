@@ -1,6 +1,6 @@
 // Package intro is sptui's startup animations. Each lives in its own file
 // and draws a small canvas of cells and half-block pixels as it is t
-// milliseconds in; Play renders one frame of it with the colours of an Env.
+// milliseconds in; Play renders one frame of it with the colors of an Env.
 package intro
 
 import (
@@ -64,7 +64,7 @@ func Find(name string) (Anim, bool) {
 	return Anim{}, false
 }
 
-// Env is what the animations draw with: the theme's colours as hex, and
+// Env is what the animations draw with: the theme's colors as hex, and
 // who to greet.
 type Env struct {
 	Accent, Purple, Text, Muted, Faint string
@@ -181,12 +181,12 @@ func line(px func(x, y int, hex string), x0, y0, x1, y1 float64, hex string) {
 	}
 }
 
-// canvas is a small grid of coloured cells, with a layer of half-block
+// canvas is a small grid of colored cells, with a layer of half-block
 // pixels (two per cell, stacked) drawn on top.
 type canvas struct {
 	w, h  int
 	cells [][]canvasCell
-	px    [][]string // colour per pixel, "" for none
+	px    [][]string // color per pixel, "" for none
 }
 
 type canvasCell struct{ s, fg string }
@@ -220,7 +220,7 @@ func (c *canvas) pixel(x, y int, hex string) {
 	}
 }
 
-// sprite draws rows of pixels from (x, y), each byte coloured by colors;
+// sprite draws rows of pixels from (x, y), each byte colored by colors;
 // bytes it doesn't have are left alone.
 func (c *canvas) sprite(x, y int, rows []string, colors map[byte]string) {
 	for dy, row := range rows {
@@ -232,7 +232,7 @@ func (c *canvas) sprite(x, y int, rows []string, colors map[byte]string) {
 	}
 }
 
-// render draws the canvas with every colour faded towards bg by fade.
+// render draws the canvas with every color faded towards bg by fade.
 func (c *canvas) render(fade float64, bg string) string {
 	base := lipgloss.NewStyle()
 	col := func(hex string) color.Color { return lipgloss.Color(mixHex(hex, bg, fade)) }
@@ -260,12 +260,12 @@ func (c *canvas) render(fade float64, bg string) string {
 }
 
 // Grid is one frame as data rather than terminal text, for drawing it
-// somewhere else (the website). Colours are unfaded; Fade is how far to
+// somewhere else (the website). Colors are unfaded; Fade is how far to
 // blend them all towards the background.
 type Grid struct {
 	W, H   int
 	Fade   float64
-	Pixels [][]string // 2H rows of W, colour or ""
+	Pixels [][]string // 2H rows of W, color or ""
 	Cells  [][]Cell   // H rows of W, under the pixels
 }
 
@@ -285,7 +285,7 @@ func (p *Play) Grid(t float64) Grid {
 	return g
 }
 
-// mixHex blends colour a towards b by f in [0, 1].
+// mixHex blends color a towards b by f in [0, 1].
 func mixHex(a, b string, f float64) string {
 	ar, ag, ab, ok1 := parseHex(a)
 	br, bg, bb, ok2 := parseHex(b)
@@ -295,7 +295,7 @@ func mixHex(a, b string, f float64) string {
 	return hexOf(ar+(br-ar)*f, ag+(bg-ag)*f, ab+(bb-ab)*f)
 }
 
-// parseHex reads a colour like "#1ed760" as red, green and blue in 0–1.
+// parseHex reads a color like "#1ed760" as red, green and blue in 0–1.
 func parseHex(hex string) (r, g, b float64, ok bool) {
 	var ri, gi, bi int
 	if _, err := fmt.Sscanf(hex, "#%02x%02x%02x", &ri, &gi, &bi); err != nil {
@@ -304,7 +304,7 @@ func parseHex(hex string) (r, g, b float64, ok bool) {
 	return float64(ri) / 255, float64(gi) / 255, float64(bi) / 255, true
 }
 
-// hexOf writes red, green and blue in 0–1 as a colour like "#1ed760".
+// hexOf writes red, green and blue in 0–1 as a color like "#1ed760".
 func hexOf(r, g, b float64) string {
 	c := func(v float64) int { return int(math.Round(min(max(v, 0), 1) * 255)) }
 	return fmt.Sprintf("#%02x%02x%02x", c(r), c(g), c(b))

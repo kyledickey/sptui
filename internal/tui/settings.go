@@ -37,7 +37,7 @@ type setting struct {
 	action  func() tea.Cmd // a button instead of a value
 }
 
-// accents are the colour presets, in the order they cycle.
+// accents are the color presets, in the order they cycle.
 var accents = []struct{ name, hex string }{
 	{"green", "#1ed760"}, {"blue", "#4da3ff"}, {"purple", "#b18cff"}, {"pink", "#ff7ab6"},
 	{"orange", "#ff9f43"}, {"teal", "#2dd4bf"}, {"yellow", "#f5d547"}, {"red", "#ff6b6b"},
@@ -66,8 +66,8 @@ func (m *Model) settings() []setting {
 
 	list := []setting{
 		{
-			section: "Appearance", label: "Accent colour",
-			help:    "From cover art takes the colour from whatever's playing, so sptui re-themes itself with every song.",
+			section: "Appearance", label: "Accent color",
+			help:    "From cover art takes the color from whatever's playing, so sptui re-themes itself with every song.",
 			choices: names(accents),
 			get: func(c config.Config) string {
 				for _, a := range accents {

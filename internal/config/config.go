@@ -48,7 +48,7 @@ type Player struct {
 
 // Theme holds appearance settings.
 type Theme struct {
-	// Accent is a hex colour like "#1ed760", or "cover" to take it from
+	// Accent is a hex color like "#1ed760", or "cover" to take it from
 	// the playing song's cover art.
 	Accent string `toml:"accent"`
 	// ScrollTitles scrolls titles too long to fit, instead of cutting them.
@@ -179,7 +179,7 @@ const template = `# sptui configuration. Everything here is optional.
 # keep_awake = "playing"
 
 [theme]
-# A hex colour, or "cover" to follow the playing song's cover art.
+# A hex color, or "cover" to follow the playing song's cover art.
 # accent = "#1ed760"
 
 # Scroll song titles that are too long to fit.
