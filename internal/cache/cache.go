@@ -294,6 +294,30 @@ func (c *Library) RemoveFromLibrary(ctx context.Context, uris []string) error {
 	return nil
 }
 
+func (c *Library) CreatePlaylist(ctx context.Context, name string) (spotify.Playlist, error) {
+	pl, err := c.Library.CreatePlaylist(ctx, name)
+	if err == nil {
+		c.forget("playlists")
+	}
+	return pl, err
+}
+
+func (c *Library) EditPlaylist(ctx context.Context, id string, changes spotify.PlaylistChanges) error {
+	if err := c.Library.EditPlaylist(ctx, id, changes); err != nil {
+		return err
+	}
+	c.forget("playlist", "playlists")
+	return nil
+}
+
+func (c *Library) DeletePlaylist(ctx context.Context, id string) error {
+	if err := c.Library.DeletePlaylist(ctx, id); err != nil {
+		return err
+	}
+	c.forget("playlist", "playlists")
+	return nil
+}
+
 func (c *Library) AddToPlaylist(ctx context.Context, id string, uris []string) error {
 	if err := c.Library.AddToPlaylist(ctx, id, uris); err != nil {
 		return err

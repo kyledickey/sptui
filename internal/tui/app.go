@@ -68,6 +68,7 @@ const (
 	inputSearch
 	inputFilter
 	inputSetting // editing a text setting
+	inputAnswer  // answering a menu that asks for text
 )
 
 type status struct {
@@ -278,7 +279,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.input.SetWidth(max(10, m.contentWidth()-12))
+		m.fitInput()
 		return requestCellSize() // a font change resizes the window too
 	case uv.CellSizeEvent:
 		return m.setCellSize(msg.Width, msg.Height)
@@ -395,6 +396,22 @@ func (m *Model) handleData(msg tea.Msg) tea.Cmd {
 
 	case savedMsg:
 		return m.handleSaved(msg)
+
+	case playlistMadeMsg:
+		switch {
+		case msg.err != nil:
+			m.setStatus(friendly(msg.err), true)
+		case msg.what != "":
+			m.setStatus("Added "+msg.what+" to "+msg.name, false)
+		default:
+			m.setStatus("Created “"+msg.name+"”", false)
+		}
+		if msg.made {
+			return m.reloadPlaylists()
+		}
+
+	case playlistEditMsg:
+		return m.handlePlaylistEdit(msg)
 
 	case meMsg:
 		if msg.err != nil {
@@ -711,6 +728,13 @@ func (m *Model) loadPlaylists(offset int) tea.Cmd {
 
 func (m *Model) reloadPlaylists() tea.Cmd {
 	m.playlistGen++
+	uri := func(i int) string {
+		if i < len(m.sidebar.items) && m.sidebar.items[i].playlist != nil {
+			return m.sidebar.items[i].uri
+		}
+		return ""
+	}
+	m.sidebar.keepActive, m.sidebar.keepCursor = uri(m.sidebar.active), uri(m.sidebar.cursor)
 	items := m.sidebar.items[:0]
 	for _, it := range m.sidebar.items {
 		if it.playlist == nil {
@@ -755,6 +779,16 @@ func (m *Model) openFilter() tea.Cmd {
 func (m *Model) closeInput() {
 	m.inputMode = inputNone
 	m.input.Blur()
+	m.fitInput()
+}
+
+// fitInput sizes the text input for where it's drawn: the page, or a menu.
+func (m *Model) fitInput() {
+	w := m.contentWidth() - 12
+	if m.inputMode == inputAnswer && m.menu != nil {
+		w = m.menuWidth() - 4 - len([]rune(m.menu.prompt)) - 1
+	}
+	m.input.SetWidth(max(10, w))
 }
 
 // updateInput forwards msg to the text input and reacts to changes.

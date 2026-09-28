@@ -43,7 +43,10 @@ type Library interface {
 	InLibrary(ctx context.Context, uris []string) ([]bool, error)
 	SaveToLibrary(ctx context.Context, uris []string) error
 	RemoveFromLibrary(ctx context.Context, uris []string) error
+	CreatePlaylist(ctx context.Context, name string) (spotify.Playlist, error)
 	AddToPlaylist(ctx context.Context, playlistID string, uris []string) error
+	EditPlaylist(ctx context.Context, playlistID string, changes spotify.PlaylistChanges) error
+	DeletePlaylist(ctx context.Context, playlistID string) error
 	CoverArt(ctx context.Context, url string) (image.Image, error)
 	Queue(ctx context.Context) (spotify.Queue, error)
 }

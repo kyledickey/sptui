@@ -201,6 +201,8 @@ func (m *Model) viewFooter() string {
 	switch {
 	case m.showHelp:
 		hints = []key.Binding{esc("close")}
+	case m.menu != nil && m.menu.answer != nil:
+		hints = []key.Binding{enter(m.menu.verb), esc("cancel")}
 	case m.menu != nil:
 		hints = []key.Binding{k.Up, k.Down, enter("select"), esc("close")}
 	case m.inputMode == inputSearch:
@@ -797,9 +799,14 @@ func (m *Model) volumeBar() string {
 
 func (m *Model) viewMenu() string {
 	mn := m.menu
-	w := min(52, m.width-6)
+	w := m.menuWidth()
 	inner := w - 4
 	lines := []string{m.st.modalTitle.Render(clampWidth(mn.title, inner)), ""}
+
+	if mn.answer != nil {
+		lines = append(lines, m.st.on.Render(mn.prompt)+m.input.View(), "", m.st.keyDesc.Render("enter "+mn.verb+" · esc cancel"))
+		return m.st.modal.Width(w).Render(strings.Join(lines, "\n"))
+	}
 
 	switch {
 	case mn.loading:
@@ -827,3 +834,5 @@ func (m *Model) viewMenu() string {
 	lines = append(lines, "", m.st.keyDesc.Render("enter select · esc close"))
 	return m.st.modal.Width(w).Render(strings.Join(lines, "\n"))
 }
+
+func (m *Model) menuWidth() int { return min(52, m.width-6) }

@@ -16,6 +16,7 @@ const (
 	artistAlbumsLimit = 10
 	searchLimit       = 10
 	libraryURIsLimit  = 40
+	playlistAddLimit  = 100
 )
 
 // Wrappers Spotify puts around items in some collections.
@@ -269,9 +270,39 @@ func (c *Client) libraryEdit(ctx context.Context, method string, uris []string) 
 	return nil
 }
 
-// AddToPlaylist appends tracks to a playlist.
+// CreatePlaylist makes a new, empty playlist owned by the current user.
+func (c *Client) CreatePlaylist(ctx context.Context, name string) (Playlist, error) {
+	var pl Playlist
+	err := c.do(ctx, http.MethodPost, "/me/playlists", nil, map[string]any{"name": name}, &pl)
+	return pl, err
+}
+
+// PlaylistChanges are edits to a playlist's details. Nil fields stay as
+// they are.
+type PlaylistChanges struct {
+	Name        *string `json:"name,omitempty"`
+	Description *string `json:"description,omitempty"`
+}
+
+// EditPlaylist changes a playlist's name or description.
+func (c *Client) EditPlaylist(ctx context.Context, playlistID string, changes PlaylistChanges) error {
+	return c.do(ctx, http.MethodPut, "/playlists/"+playlistID, nil, changes, nil)
+}
+
+// DeletePlaylist deletes one of the user's playlists. Spotify has no real
+// delete: its own apps just have the owner unfollow the playlist.
+func (c *Client) DeletePlaylist(ctx context.Context, playlistID string) error {
+	return c.RemoveFromLibrary(ctx, []string{"spotify:playlist:" + playlistID})
+}
+
+// AddToPlaylist appends tracks to a playlist, in order.
 func (c *Client) AddToPlaylist(ctx context.Context, playlistID string, uris []string) error {
-	return c.do(ctx, http.MethodPost, "/playlists/"+playlistID+"/items", nil, map[string]any{"uris": uris}, nil)
+	for chunk := range slices.Chunk(uris, playlistAddLimit) {
+		if err := c.do(ctx, http.MethodPost, "/playlists/"+playlistID+"/items", nil, map[string]any{"uris": chunk}, nil); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // derefPage drops nil entries, which Spotify sometimes returns for

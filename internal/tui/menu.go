@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -18,6 +19,12 @@ type menu struct {
 	cursor  int
 	loading bool
 	empty   string
+	// answer, if set, makes the menu a text box instead of a list; it's
+	// called with what was typed. See ask.
+	answer func(text string) tea.Cmd
+	prompt string // leads the text box
+	verb   string // what enter does
+	blank  bool   // whether an empty answer is allowed
 }
 
 type menuItem struct {
@@ -30,6 +37,13 @@ func (mn *menu) move(delta int) {
 	if len(mn.items) > 0 {
 		mn.cursor = (mn.cursor + delta + len(mn.items)) % len(mn.items)
 	}
+}
+
+// playlistMadeMsg reports a new playlist, and adding songs to it.
+type playlistMadeMsg struct {
+	name, what string
+	made       bool
+	err        error
 }
 
 // devicesMsg carries devices for the device picker.
@@ -57,7 +71,10 @@ func (m *Model) actionsMenu(r row, from *page) *menu {
 		} else {
 			add("Like / unlike", func() tea.Cmd { return m.toggleSaved(r) })
 		}
-		add("Add to playlist…", func() tea.Cmd { m.menu = m.playlistPicker(t); return nil })
+		add("Add to playlist", func() tea.Cmd {
+			m.menu = m.playlistPicker("“"+t.Name+"”", func(context.Context) ([]string, error) { return []string{t.URI}, nil })
+			return nil
+		})
 		if t.Show != nil && t.Show.ID != "" {
 			sh := *t.Show
 			add("Go to podcast", func() tea.Cmd { return m.push(showPage(m.backend, sh)) })
@@ -77,16 +94,31 @@ func (m *Model) actionsMenu(r row, from *page) *menu {
 		if radioURI(r) != "" {
 			add("Start radio", func() tea.Cmd { return m.startRadio(r) })
 		}
-		add("Open", func() tea.Cmd { return m.push(openRow(m.backend, r)) })
+		if p := m.current(); p == nil || p.self == nil || p.self.uri() != uri {
+			add("Open", func() tea.Cmd { return m.push(openRow(m.backend, r)) })
+		}
 		label := "Save / remove from library"
 		if r.kind == kindArtist || r.kind == kindShow {
 			label = "Follow / unfollow"
 		}
-		if !m.ownPlaylist(r) {
+		if m.ownPlaylist(r) {
+			pl := r.playlist
+			add("Rename", func() tea.Cmd { return m.renamePlaylist(pl) })
+			add("Edit description", func() tea.Cmd { return m.describePlaylist(pl) })
+			add("Delete playlist", func() tea.Cmd { m.menu = m.confirmDelete(pl); return nil })
+		} else {
 			add(label, func() tea.Cmd { return m.toggleSaved(r) })
 		}
 		if r.kind == kindAlbum {
-			for _, ar := range r.album.Artists {
+			al := r.album
+			add("Like all songs", func() tea.Cmd { return m.likeAll(al) })
+			add("Add to playlist", func() tea.Cmd {
+				m.menu = m.playlistPicker("“"+al.Name+"”", func(ctx context.Context) ([]string, error) {
+					return m.albumTrackURIs(ctx, al)
+				})
+				return nil
+			})
+			for _, ar := range al.Artists {
 				add("Go to "+ar.Name, func() tea.Cmd { return m.push(artistPage(m.backend, ar)) })
 			}
 		}
@@ -159,9 +191,16 @@ func (m *Model) setDevices(msg devicesMsg) {
 	}
 }
 
-// playlistPicker lists playlists the user can add t to.
-func (m *Model) playlistPicker(t spotify.Track) *menu {
-	mn := &menu{title: "Add to playlist", empty: "You don't have any playlists you can edit."}
+// playlistPicker lists playlists the user can add songs to, after an
+// option to make a new one. what names the songs in the status line; uris
+// fetches them once a playlist is picked.
+func (m *Model) playlistPicker(what string, uris func(context.Context) ([]string, error)) *menu {
+	mn := &menu{title: "Add to playlist"}
+	mn.items = append(mn.items, menuItem{
+		label: "New playlist",
+		note:  "+",
+		run:   func() tea.Cmd { return m.newPlaylist(what, uris) },
+	})
 	for _, pl := range m.sidebar.playlists() {
 		if !pl.EditableBy(m.me.ID) {
 			continue
@@ -170,11 +209,128 @@ func (m *Model) playlistPicker(t spotify.Track) *menu {
 			label: pl.Name,
 			note:  fmt.Sprint(pl.TrackCount()),
 			run: func() tea.Cmd {
-				return m.act("add to playlist", "Added to "+pl.Name, func(ctx context.Context) error {
-					return m.backend.AddToPlaylist(ctx, pl.ID, []string{t.URI})
+				return m.act("add to playlist", "Added "+what+" to "+pl.Name, func(ctx context.Context) error {
+					u, err := uris(ctx)
+					if err != nil {
+						return err
+					}
+					return m.backend.AddToPlaylist(ctx, pl.ID, u)
 				})
 			},
 		})
 	}
 	return mn
+}
+
+// ask turns mn into a text box starting at value, and shows it.
+func (m *Model) ask(mn *menu, value, placeholder string) tea.Cmd {
+	m.menu = mn
+	m.inputMode = inputAnswer
+	m.input.Placeholder = placeholder
+	m.input.SetValue(value)
+	m.input.CursorEnd()
+	m.fitInput()
+	return m.input.Focus()
+}
+
+// newPlaylist asks for a name, then makes a playlist and adds the songs
+// uris fetches to it, if any.
+func (m *Model) newPlaylist(what string, uris func(context.Context) ([]string, error)) tea.Cmd {
+	return m.ask(&menu{title: "New playlist", prompt: "name › ", verb: "create", answer: func(name string) tea.Cmd {
+		return m.call(func(ctx context.Context) tea.Msg {
+			pl, err := m.backend.CreatePlaylist(ctx, name)
+			if err != nil {
+				return playlistMadeMsg{err: err}
+			}
+			msg := playlistMadeMsg{name: pl.Name, made: true}
+			if uris != nil {
+				msg.what = what
+				u, err := uris(ctx)
+				if err == nil {
+					err = m.backend.AddToPlaylist(ctx, pl.ID, u)
+				}
+				msg.err = err
+			}
+			return msg
+		})
+	}}, "", "Name it")
+}
+
+// playlistEditMsg reports a playlist renamed, redescribed or deleted. pl
+// is how it is now.
+type playlistEditMsg struct {
+	pl      spotify.Playlist
+	deleted bool
+	ok      string
+	err     error
+}
+
+func (m *Model) renamePlaylist(pl spotify.Playlist) tea.Cmd {
+	return m.ask(&menu{title: "Rename “" + pl.Name + "”", prompt: "name › ", verb: "save", answer: func(name string) tea.Cmd {
+		if name == pl.Name {
+			return nil
+		}
+		old := pl.Name
+		pl.Name = name
+		return m.editPlaylist(pl, spotify.PlaylistChanges{Name: &name}, "Renamed “"+old+"” to “"+name+"”")
+	}}, pl.Name, "Name it")
+}
+
+func (m *Model) describePlaylist(pl spotify.Playlist) tea.Cmd {
+	current := cleanDescription(pl.Description)
+	return m.ask(&menu{title: "Describe “" + pl.Name + "”", prompt: "about › ", verb: "save", blank: true, answer: func(about string) tea.Cmd {
+		if about == current {
+			return nil
+		}
+		pl.Description = about
+		return m.editPlaylist(pl, spotify.PlaylistChanges{Description: &about}, "Updated the description of “"+pl.Name+"”")
+	}}, current, "What's it for?")
+}
+
+func (m *Model) editPlaylist(pl spotify.Playlist, changes spotify.PlaylistChanges, ok string) tea.Cmd {
+	return m.call(func(ctx context.Context) tea.Msg {
+		return playlistEditMsg{pl: pl, ok: ok, err: m.backend.EditPlaylist(ctx, pl.ID, changes)}
+	})
+}
+
+// confirmDelete asks before deleting a playlist, with keeping it first.
+func (m *Model) confirmDelete(pl spotify.Playlist) *menu {
+	return &menu{
+		title: "Delete “" + pl.Name + "”?",
+		items: []menuItem{
+			{label: "Keep it", run: func() tea.Cmd { return nil }},
+			{label: "Delete playlist", note: plural(pl.TrackCount(), "song"), run: func() tea.Cmd {
+				return m.call(func(ctx context.Context) tea.Msg {
+					return playlistEditMsg{pl: pl, deleted: true, ok: "Deleted “" + pl.Name + "”", err: m.backend.DeletePlaylist(ctx, pl.ID)}
+				})
+			}},
+		},
+	}
+}
+
+// handlePlaylistEdit brings open pages and the sidebar up to date after a
+// playlist changed.
+func (m *Model) handlePlaylistEdit(msg playlistEditMsg) tea.Cmd {
+	if msg.err != nil {
+		m.setStatus(friendly(msg.err), true)
+		return nil
+	}
+	m.setStatus(msg.ok, false)
+	if msg.deleted {
+		gone := func(p *page) bool { return p.context == msg.pl.URI }
+		onIt := slices.ContainsFunc(m.stack, gone)
+		m.stack = slices.DeleteFunc(m.stack, gone)
+		if onIt && len(m.stack) == 0 {
+			return tea.Batch(m.reloadPlaylists(), m.openNav(1)) // home
+		}
+		return m.reloadPlaylists()
+	}
+	for _, p := range m.stack {
+		if p.context == msg.pl.URI && p.self != nil {
+			p.title = msg.pl.Name
+			p.about = cleanDescription(msg.pl.Description)
+			p.self.playlist = msg.pl
+		}
+	}
+	return m.reloadPlaylists()
 }

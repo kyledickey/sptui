@@ -417,6 +417,46 @@ func (b *Backend) RemoveFromLibrary(ctx context.Context, uris []string) error {
 	return nil
 }
 
+func (b *Backend) CreatePlaylist(ctx context.Context, name string) (spotify.Playlist, error) {
+	if err := b.wait(ctx); err != nil {
+		return spotify.Playlist{}, err
+	}
+	defer b.mu.Unlock()
+	id := fmt.Sprintf("new%d", len(b.playlists))
+	pl := spotify.Playlist{ID: id, Name: name, URI: "spotify:playlist:" + id, Owner: b.me, Items: &spotify.Count{}}
+	b.playlists = append([]spotify.Playlist{pl}, b.playlists...) // newest first, like Spotify
+	b.plTracks[id] = nil
+	return pl, nil
+}
+
+func (b *Backend) EditPlaylist(ctx context.Context, id string, changes spotify.PlaylistChanges) error {
+	if err := b.wait(ctx); err != nil {
+		return err
+	}
+	defer b.mu.Unlock()
+	i := slices.IndexFunc(b.playlists, func(pl spotify.Playlist) bool { return pl.ID == id })
+	if i < 0 {
+		return &spotify.Error{Status: http.StatusNotFound, Message: "playlist not found"}
+	}
+	if changes.Name != nil {
+		b.playlists[i].Name = *changes.Name
+	}
+	if changes.Description != nil {
+		b.playlists[i].Description = *changes.Description
+	}
+	return nil
+}
+
+func (b *Backend) DeletePlaylist(ctx context.Context, id string) error {
+	if err := b.wait(ctx); err != nil {
+		return err
+	}
+	defer b.mu.Unlock()
+	b.playlists = slices.DeleteFunc(b.playlists, func(pl spotify.Playlist) bool { return pl.ID == id })
+	delete(b.plTracks, id)
+	return nil
+}
+
 func (b *Backend) AddToPlaylist(ctx context.Context, id string, uris []string) error {
 	if err := b.wait(ctx); err != nil {
 		return err

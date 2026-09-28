@@ -456,6 +456,162 @@ func (d *driver) openFirstAlbum() {
 	}
 }
 
+// TestAlbumPageMenu checks that "more" acts on the album, not the song under
+// the cursor, and can add the whole album to a playlist.
+func TestAlbumPageMenu(t *testing.T) {
+	d := newDriver(t, 120, 40)
+	d.openFirstAlbum()
+	p := d.page()
+	d.press(".")
+	if d.m.menu == nil || d.m.menu.title != p.self.name() {
+		t.Fatalf("menu = %+v, want the album's", d.m.menu)
+	}
+	pick := func(label string) {
+		t.Helper()
+		for i, it := range d.m.menu.items {
+			if it.label == label {
+				d.m.menu.cursor = i
+				d.press("enter")
+				return
+			}
+		}
+		t.Fatalf("menu has no %q", label)
+	}
+	pick("Add to playlist")
+	pl := d.m.menu.items[1].label // after "New playlist"
+	before := d.m.sidebar.playlists()
+	d.press("j", "enter")
+	if d.m.status.err || !strings.HasPrefix(d.m.status.text, "Added “"+p.self.name()+"” to "+pl) {
+		t.Fatalf("status = %+v", d.m.status)
+	}
+	d.run(d.m.reloadPlaylists())
+	for i, after := range d.m.sidebar.playlists() {
+		if after.Name == pl && after.TrackCount() != before[i].TrackCount()+len(p.rows) {
+			t.Fatalf("%s has %d songs, want %d", pl, after.TrackCount(), before[i].TrackCount()+len(p.rows))
+		}
+	}
+
+	d.press(".")
+	pick("Like all songs")
+	if d.m.status.err || !strings.HasPrefix(d.m.status.text, "Liked every song") {
+		t.Fatalf("status = %+v", d.m.status)
+	}
+}
+
+// TestNewPlaylist makes a playlist from the sidebar, then another with an
+// album in it from the album's menu.
+func TestNewPlaylist(t *testing.T) {
+	d := newDriver(t, 120, 40)
+	d.m.sidebar.cursor = d.navIndex("New playlist")
+	d.press("tab", "enter")
+	if d.m.menu == nil || d.m.menu.answer == nil {
+		t.Fatalf("menu = %+v, want a name prompt", d.m.menu)
+	}
+	d.press("enter") // no name yet: nothing happens
+	if d.m.menu == nil {
+		t.Fatal("an empty name closed the prompt")
+	}
+	d.typeText("quiet mornings")
+	d.press("enter")
+	if d.m.menu != nil || d.m.inputMode != inputNone {
+		t.Fatal("the prompt stayed open")
+	}
+	if d.m.status.text != "Created “quiet mornings”" {
+		t.Fatalf("status = %+v", d.m.status)
+	}
+	if pls := d.m.sidebar.playlists(); len(pls) == 0 || pls[0].Name != "quiet mornings" {
+		t.Fatalf("sidebar playlists = %+v", pls)
+	}
+
+	d.m.focus = focusMain
+	d.openFirstAlbum()
+	album := d.page()
+	d.press(".")
+	for i, it := range d.m.menu.items {
+		if it.label == "Add to playlist" {
+			d.m.menu.cursor = i
+		}
+	}
+	d.press("enter", "enter") // "New playlist" comes first
+	d.typeText("an album")
+	d.press("enter")
+	if d.m.status.err || d.m.status.text != "Added “"+album.self.name()+"” to an album" {
+		t.Fatalf("status = %+v", d.m.status)
+	}
+	pl := d.m.sidebar.playlists()[0]
+	if pl.Name != "an album" || pl.TrackCount() != len(album.rows) {
+		t.Fatalf("new playlist = %s with %d songs, want %d", pl.Name, pl.TrackCount(), len(album.rows))
+	}
+}
+
+// TestEditPlaylist renames, describes and deletes the user's own playlist
+// from its page, keeping the page and sidebar in step.
+func TestEditPlaylist(t *testing.T) {
+	d := newDriver(t, 120, 40)
+	d.open("Morning Coffee") // the demo user's
+	p := d.page()
+	pick := func(label string) {
+		t.Helper()
+		d.press(".")
+		for i, it := range d.m.menu.items {
+			if it.label == label {
+				d.m.menu.cursor = i
+				d.press("enter")
+				return
+			}
+		}
+		t.Fatalf("menu has no %q", label)
+	}
+	clear := func() {
+		for range 40 {
+			d.run(func() tea.Msg { return tea.KeyPressMsg{Code: tea.KeyBackspace} })
+		}
+	}
+
+	pick("Rename")
+	if d.m.input.Value() != "Morning Coffee" {
+		t.Fatalf("rename starts at %q", d.m.input.Value())
+	}
+	clear()
+	d.typeText("Evening Tea")
+	d.press("enter")
+	if p.title != "Evening Tea" || d.m.sidebar.playlists()[0].Name != "Evening Tea" {
+		t.Fatalf("title %q, sidebar %q", p.title, d.m.sidebar.playlists()[0].Name)
+	}
+	if it := d.m.sidebar.items[d.m.sidebar.active]; it.label != "Evening Tea" {
+		t.Fatalf("sidebar highlights %q after the reload", it.label)
+	}
+
+	pick("Edit description")
+	clear()
+	d.typeText("for winding down")
+	d.press("enter")
+	if p.about != "for winding down" || d.m.sidebar.playlists()[0].Description != "for winding down" {
+		t.Fatalf("about = %q", p.about)
+	}
+	pick("Edit description")
+	clear()
+	d.press("enter") // a blank description is allowed
+	if p.about != "" {
+		t.Fatalf("about = %q, want it cleared", p.about)
+	}
+
+	before := len(d.m.sidebar.playlists())
+	pick("Delete playlist")
+	d.press("enter") // "Keep it" comes first
+	if len(d.m.sidebar.playlists()) != before {
+		t.Fatal("keeping it deleted it")
+	}
+	pick("Delete playlist")
+	d.press("j", "enter")
+	if len(d.m.sidebar.playlists()) != before-1 || d.m.status.text != "Deleted “Evening Tea”" {
+		t.Fatalf("status %q, %d playlists", d.m.status.text, len(d.m.sidebar.playlists()))
+	}
+	if cur := d.m.current(); cur == nil || !cur.home {
+		t.Fatal("still on the deleted playlist")
+	}
+}
+
 func TestCoverArtBlocks(t *testing.T) {
 	d := newDriverWith(t, 120, 40, demo.New(), Options{Config: withArt(art.Blocks)})
 	d.openFirstAlbum()

@@ -217,6 +217,10 @@ func (m *Model) listKey(msg tea.KeyPressMsg, p *page) tea.Cmd {
 		} else if p.self != nil {
 			m.menu = m.actionsMenu(*p.self, nil)
 		}
+	case key.Matches(msg, k.PageMenu):
+		if p.self != nil {
+			m.menu = m.actionsMenu(*p.self, nil)
+		}
 	case key.Matches(msg, k.Like):
 		if r, ok := p.selected(); ok {
 			return m.toggleSaved(r)
@@ -235,12 +239,15 @@ func (m *Model) listKey(msg tea.KeyPressMsg, p *page) tea.Cmd {
 
 func (m *Model) menuKey(msg tea.KeyPressMsg) tea.Cmd {
 	k, mn := m.keys, m.menu
+	if mn.answer != nil {
+		return m.answerKey(msg)
+	}
 	switch {
 	case key.Matches(msg, k.Up):
 		mn.move(-1)
 	case key.Matches(msg, k.Down):
 		mn.move(1)
-	case key.Matches(msg, k.Back, k.Quit, k.Menu, k.Devices):
+	case key.Matches(msg, k.Back, k.Quit, k.Menu, k.PageMenu, k.Devices):
 		m.menu = nil
 	case key.Matches(msg, k.Enter):
 		m.menu = nil
@@ -251,6 +258,25 @@ func (m *Model) menuKey(msg tea.KeyPressMsg) tea.Cmd {
 		return mn.items[mn.cursor].run()
 	}
 	return nil
+}
+
+// answerKey handles typing into a menu that asks for text.
+func (m *Model) answerKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch msg.String() {
+	case "esc":
+		m.menu = nil
+		m.closeInput()
+		return nil
+	case "enter":
+		text, mn := strings.TrimSpace(m.input.Value()), m.menu
+		if text == "" && !mn.blank {
+			return nil
+		}
+		m.menu = nil
+		m.closeInput()
+		return mn.answer(text)
+	}
+	return m.updateInput(msg)
 }
 
 func (m *Model) inputKey(msg tea.KeyPressMsg) tea.Cmd {
@@ -408,7 +434,7 @@ func (m *Model) addToQueue(t spotify.Track) tea.Cmd {
 func (m *Model) toggleSaved(r row) tea.Cmd {
 	if m.ownPlaylist(r) {
 		// Unfollowing your own playlist deletes it; too easy to do by accident.
-		m.setStatus("That's your playlist — delete it in Spotify if you want it gone", true)
+		m.setStatus("That's your playlist — delete it from its menu if you want it gone", true)
 		return nil
 	}
 	uri := r.uri()
@@ -422,6 +448,35 @@ func (m *Model) toggleSaved(r row) tea.Cmd {
 		}
 		return savedMsg{r: r, saved: true, err: m.backend.SaveToLibrary(ctx, []string{uri})}
 	})
+}
+
+// likeAll likes every song on an album.
+func (m *Model) likeAll(al spotify.Album) tea.Cmd {
+	return m.act("like album", "Liked every song on “"+al.Name+"”", func(ctx context.Context) error {
+		uris, err := m.albumTrackURIs(ctx, al)
+		if err != nil {
+			return err
+		}
+		return m.backend.SaveToLibrary(ctx, uris)
+	})
+}
+
+// albumTrackURIs fetches the URIs of every song on an album.
+func (m *Model) albumTrackURIs(ctx context.Context, al spotify.Album) ([]string, error) {
+	var uris []string
+	for off := 0; ; {
+		pg, err := m.backend.AlbumTracks(ctx, al, off)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range pg.Items {
+			uris = append(uris, t.URI)
+		}
+		off += len(pg.Items)
+		if !pg.HasMore() || len(pg.Items) == 0 {
+			return uris, nil
+		}
+	}
 }
 
 func (m *Model) ownPlaylist(r row) bool {

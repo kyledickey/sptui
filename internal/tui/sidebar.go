@@ -27,6 +27,10 @@ type sidebar struct {
 	active int            // index of the item whose page is on screen
 	loaded bool           // all playlists have arrived
 	origin spotify.Origin // where the playlists came from
+
+	// The playlists that were active and under the cursor before a reload,
+	// to find them again when they come back.
+	keepActive, keepCursor string
 }
 
 func newSidebar() sidebar {
@@ -47,6 +51,7 @@ func newSidebar() sidebar {
 			{icon: "▶", label: "Now Playing", open: func(m *Model) *page { return nowPlayingPage(m.backend) }},
 			{header: true}, // a gap
 			{label: "Playlists", header: true},
+			{icon: "+", label: "New playlist", play: func(m *Model) tea.Cmd { return m.newPlaylist("", nil) }},
 		},
 	}
 }
@@ -54,6 +59,12 @@ func newSidebar() sidebar {
 // addPlaylists appends playlists to the sidebar.
 func (s *sidebar) addPlaylists(pls []spotify.Playlist) {
 	for _, pl := range pls {
+		if pl.URI == s.keepActive {
+			s.active = len(s.items)
+		}
+		if pl.URI == s.keepCursor {
+			s.cursor = len(s.items)
+		}
 		s.items = append(s.items, navItem{
 			label:    pl.Name,
 			uri:      pl.URI,
