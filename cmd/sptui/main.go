@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -25,13 +27,27 @@ import (
 	"github.com/kyledickey/sptui/internal/speaker"
 	"github.com/kyledickey/sptui/internal/spotify"
 	"github.com/kyledickey/sptui/internal/tui"
+	"github.com/kyledickey/sptui/internal/update"
 )
 
-// version is set at build time with -ldflags "-X main.version=...".
+// version is set at build time with -ldflags "-X main.version=...". Builds
+// without it are development builds, which never update themselves.
 var version = "dev"
 
+func init() {
+	// go install records the release it built; a checkout's build doesn't.
+	if bi, ok := debug.ReadBuildInfo(); ok && version == "dev" &&
+		update.IsRelease(bi.Main.Version) && !strings.Contains(bi.Main.Version, "-") {
+		version = bi.Main.Version
+	}
+}
+
 // userAgent identifies sptui to services that ask for it (LRCLIB).
-var userAgent = "sptui/" + version + " (https://github.com/kyledickey/sptui)"
+func userAgent() string { return "sptui/" + version + " (https://github.com/kyledickey/sptui)" }
+
+// updatedEnv tells a relaunched sptui which update it's running, so it can
+// say so.
+const updatedEnv = "SPTUI_UPDATED"
 
 const usage = `sptui — Spotify in your terminal
 
@@ -39,12 +55,16 @@ Usage:
   sptui [flags]          start the player
   sptui login            log in to Spotify (again)
   sptui logout           forget the saved login
+  sptui update           install the latest release (-check: only look)
 
 Flags:
 `
 
 func main() {
 	err := run(os.Args[1:])
+	if r, ok := errors.AsType[*relaunchError](err); ok {
+		err = relaunch(r.exe, r.args, r.version) // only returns if it fails
+	}
 	switch {
 	case errors.Is(err, flag.ErrHelp):
 		return
@@ -92,14 +112,24 @@ func run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
+	// Before reading the config: a broken one mustn't stop an update.
+	if fs.Arg(0) == "update" {
+		return runUpdate(ctx, fs.Args()[1:], cacheDir, log)
+	}
+
 	if _, err := config.WriteTemplate(*configPath); err != nil {
 		log.Warn("couldn't write config template", "err", err)
 	}
 	keeper := awake.New("sptui", log.With("pkg", "awake"))
 	defer keeper.Close()
 
+	updated := os.Getenv(updatedEnv)
+	os.Unsetenv(updatedEnv)
 	a := &app{
 		keeper:       keeper,
+		updates:      newUpdater(cacheDir, log),
+		updated:      updated,
+		introShown:   updated != "", // it played before the update
 		demo:         *demoMode,
 		configPath:   *configPath,
 		tokenPath:    filepath.Join(cacheDir, "token.json"),
@@ -132,7 +162,11 @@ func run(args []string) error {
 		switch outcome {
 		case tui.Quit:
 			log.Info("bye")
+			a.sayNewRelease()
 			return nil
+		case tui.Relaunch:
+			// Flags carry over; a command like login already happened.
+			return &relaunchError{exe: a.updates.Exe, args: args[:len(args)-fs.NArg()], version: a.newRelease}
 		case tui.Restart:
 			log.Info("restarting to apply settings")
 		case tui.LogOut:
@@ -159,10 +193,19 @@ type app struct {
 	libraryCache string
 	log          *slog.Logger
 
+	// updates installs new releases; nil for development builds.
+	updates *update.Updater
+	// updated is the release this process was relaunched into, if it was.
+	updated string
+
 	// Set by configure from the config file.
 	cfg        config.Config
 	authn      *auth.Authenticator
 	introShown bool
+
+	// What the UI last learned about a newer release.
+	newRelease string
+	installed  bool
 }
 
 // configure (re)reads the config file, so settings changed in the UI take
@@ -198,7 +241,15 @@ func (a *app) session(ctx context.Context) (tui.Outcome, error) {
 		SaveConfig: func(c config.Config) error { return config.Save(a.configPath, c) },
 		KeepAwake:  a.keeper.Set,
 		Intro:      !a.introShown, // not again on restart
+		Version:    version,
 		Log:        a.log,
+	}
+	if a.updates != nil && !a.demo {
+		opts.Updates = a.updates
+	}
+	if a.updated != "" {
+		opts.Status = "Updated to sptui " + a.updated
+		a.updated = ""
 	}
 	a.introShown = true
 	var backend tui.Backend
@@ -240,7 +291,7 @@ func (a *app) session(ctx context.Context) (tui.Outcome, error) {
 			tui.Library
 			tui.Player
 			tui.LyricsSource
-		}{library, player, lyrics.New(userAgent, a.log.With("pkg", "lyrics"))}
+		}{library, player, lyrics.New(userAgent(), a.log.With("pkg", "lyrics"))}
 	}
 
 	model := tui.New(backend, opts)
@@ -255,6 +306,7 @@ func (a *app) session(ctx context.Context) (tui.Outcome, error) {
 	}
 	_, err := program.Run()
 	a.keeper.Set(false) // the next session decides for itself
+	a.newRelease, a.installed = model.NewRelease()
 	if err != nil && !errors.Is(err, tea.ErrProgramKilled) {
 		return tui.Quit, err
 	}
