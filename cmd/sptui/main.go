@@ -132,6 +132,7 @@ func run(args []string) error {
 		introShown:   updated != "", // it played before the update
 		demo:         *demoMode,
 		configPath:   *configPath,
+		logPath:      *logPath,
 		tokenPath:    filepath.Join(cacheDir, "token.json"),
 		speakerState: filepath.Join(cacheDir, "speaker.json"),
 		libraryCache: filepath.Join(cacheDir, "library"),
@@ -188,6 +189,7 @@ type app struct {
 	keeper       *awake.Keeper
 	demo         bool
 	configPath   string
+	logPath      string
 	tokenPath    string
 	speakerState string
 	libraryCache string
@@ -242,6 +244,8 @@ func (a *app) session(ctx context.Context) (tui.Outcome, error) {
 		KeepAwake:  a.keeper.Set,
 		Intro:      !a.introShown, // not again on restart
 		Version:    version,
+		ConfigPath: a.configPath,
+		LogPath:    a.logPath,
 		Log:        a.log,
 	}
 	if a.updates != nil && !a.demo {

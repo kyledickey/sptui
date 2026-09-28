@@ -43,6 +43,9 @@ type Options struct {
 	Intro bool
 	// Version is sptui's own, like v1.2.0, shown in the settings.
 	Version string
+	// ConfigPath and LogPath are where sptui keeps its settings and its
+	// log, for the settings screen to show. Empty ones aren't shown.
+	ConfigPath, LogPath string
 	// Updates finds and installs newer releases. Nil means this build
 	// doesn't update itself: a development build, or the demo.
 	Updates Updater

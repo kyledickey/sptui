@@ -1148,3 +1148,25 @@ func TestSearchFindsPodcasts(t *testing.T) {
 		t.Fatalf("sections = %v", sections)
 	}
 }
+
+func TestSettingsClick(t *testing.T) {
+	d := newDriverWith(t, 140, 45, demo.New(), Options{Config: withArt(art.Blocks), SaveConfig: func(config.Config) error { return nil }})
+	d.press(",")
+	y := slices.IndexFunc(strings.Split(ansi.Strip(d.m.View().Content), "\n"), func(l string) bool {
+		return strings.Contains(l, "Album art")
+	})
+	if y < 0 {
+		t.Fatal("no Album art row")
+	}
+	click := func() {
+		d.run(func() tea.Msg { return tea.MouseClickMsg{X: d.m.sidebarWidth() + 5, Y: y, Button: tea.MouseLeft} })
+	}
+	click()
+	if d.page().cursor != d.settingIndex("Album art") {
+		t.Fatalf("click selected setting %d", d.page().cursor)
+	}
+	click()
+	if d.m.cfg.Theme.CoverArt != "off" {
+		t.Fatalf("clicking the selected setting didn't change it: %q", d.m.cfg.Theme.CoverArt)
+	}
+}

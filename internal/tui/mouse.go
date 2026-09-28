@@ -50,6 +50,10 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 			m.sidebar.move(delta)
 			return nil
 		}
+		if p != nil && p.settings {
+			p.cursor = max(p.cursor+delta/wheelStep, 0) // one setting a notch
+			return nil
+		}
 		if p != nil {
 			p.move(delta)
 			return m.loadMore(p)
@@ -74,6 +78,10 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 				return m.openNav(i)
 			}
 			return nil
+		}
+		if p != nil && p.settings {
+			// Inside the main panel's border and padding.
+			return m.settingsClick(p, ms.X-m.sidebarWidth()-2, ms.Y-top)
 		}
 		if p == nil || p.home || p.grid {
 			return nil // the home page is laid out in tiles and columns
