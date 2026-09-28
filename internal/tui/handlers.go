@@ -269,7 +269,7 @@ func (m *Model) answerKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case "enter":
 		text, mn := strings.TrimSpace(m.input.Value()), m.menu
-		if text == "" {
+		if text == "" && !mn.blank {
 			return nil
 		}
 		m.menu = nil
@@ -434,7 +434,7 @@ func (m *Model) addToQueue(t spotify.Track) tea.Cmd {
 func (m *Model) toggleSaved(r row) tea.Cmd {
 	if m.ownPlaylist(r) {
 		// Unfollowing your own playlist deletes it; too easy to do by accident.
-		m.setStatus("That's your playlist — delete it in Spotify if you want it gone", true)
+		m.setStatus("That's your playlist — delete it from its menu if you want it gone", true)
 		return nil
 	}
 	uri := r.uri()

@@ -410,6 +410,9 @@ func (m *Model) handleData(msg tea.Msg) tea.Cmd {
 			return m.reloadPlaylists()
 		}
 
+	case playlistEditMsg:
+		return m.handlePlaylistEdit(msg)
+
 	case meMsg:
 		if msg.err != nil {
 			m.log.Error("load profile", "err", msg.err)

@@ -429,6 +429,34 @@ func (b *Backend) CreatePlaylist(ctx context.Context, name string) (spotify.Play
 	return pl, nil
 }
 
+func (b *Backend) EditPlaylist(ctx context.Context, id string, changes spotify.PlaylistChanges) error {
+	if err := b.wait(ctx); err != nil {
+		return err
+	}
+	defer b.mu.Unlock()
+	i := slices.IndexFunc(b.playlists, func(pl spotify.Playlist) bool { return pl.ID == id })
+	if i < 0 {
+		return &spotify.Error{Status: http.StatusNotFound, Message: "playlist not found"}
+	}
+	if changes.Name != nil {
+		b.playlists[i].Name = *changes.Name
+	}
+	if changes.Description != nil {
+		b.playlists[i].Description = *changes.Description
+	}
+	return nil
+}
+
+func (b *Backend) DeletePlaylist(ctx context.Context, id string) error {
+	if err := b.wait(ctx); err != nil {
+		return err
+	}
+	defer b.mu.Unlock()
+	b.playlists = slices.DeleteFunc(b.playlists, func(pl spotify.Playlist) bool { return pl.ID == id })
+	delete(b.plTracks, id)
+	return nil
+}
+
 func (b *Backend) AddToPlaylist(ctx context.Context, id string, uris []string) error {
 	if err := b.wait(ctx); err != nil {
 		return err

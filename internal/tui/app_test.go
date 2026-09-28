@@ -544,6 +544,74 @@ func TestNewPlaylist(t *testing.T) {
 	}
 }
 
+// TestEditPlaylist renames, describes and deletes the user's own playlist
+// from its page, keeping the page and sidebar in step.
+func TestEditPlaylist(t *testing.T) {
+	d := newDriver(t, 120, 40)
+	d.open("Morning Coffee") // the demo user's
+	p := d.page()
+	pick := func(label string) {
+		t.Helper()
+		d.press(".")
+		for i, it := range d.m.menu.items {
+			if it.label == label {
+				d.m.menu.cursor = i
+				d.press("enter")
+				return
+			}
+		}
+		t.Fatalf("menu has no %q", label)
+	}
+	clear := func() {
+		for range 40 {
+			d.run(func() tea.Msg { return tea.KeyPressMsg{Code: tea.KeyBackspace} })
+		}
+	}
+
+	pick("Rename")
+	if d.m.input.Value() != "Morning Coffee" {
+		t.Fatalf("rename starts at %q", d.m.input.Value())
+	}
+	clear()
+	d.typeText("Evening Tea")
+	d.press("enter")
+	if p.title != "Evening Tea" || d.m.sidebar.playlists()[0].Name != "Evening Tea" {
+		t.Fatalf("title %q, sidebar %q", p.title, d.m.sidebar.playlists()[0].Name)
+	}
+	if it := d.m.sidebar.items[d.m.sidebar.active]; it.label != "Evening Tea" {
+		t.Fatalf("sidebar highlights %q after the reload", it.label)
+	}
+
+	pick("Edit description")
+	clear()
+	d.typeText("for winding down")
+	d.press("enter")
+	if p.about != "for winding down" || d.m.sidebar.playlists()[0].Description != "for winding down" {
+		t.Fatalf("about = %q", p.about)
+	}
+	pick("Edit description")
+	clear()
+	d.press("enter") // a blank description is allowed
+	if p.about != "" {
+		t.Fatalf("about = %q, want it cleared", p.about)
+	}
+
+	before := len(d.m.sidebar.playlists())
+	pick("Delete playlist")
+	d.press("enter") // "Keep it" comes first
+	if len(d.m.sidebar.playlists()) != before {
+		t.Fatal("keeping it deleted it")
+	}
+	pick("Delete playlist")
+	d.press("j", "enter")
+	if len(d.m.sidebar.playlists()) != before-1 || d.m.status.text != "Deleted “Evening Tea”" {
+		t.Fatalf("status %q, %d playlists", d.m.status.text, len(d.m.sidebar.playlists()))
+	}
+	if cur := d.m.current(); cur == nil || !cur.home {
+		t.Fatal("still on the deleted playlist")
+	}
+}
+
 func TestCoverArtBlocks(t *testing.T) {
 	d := newDriverWith(t, 120, 40, demo.New(), Options{Config: withArt(art.Blocks)})
 	d.openFirstAlbum()

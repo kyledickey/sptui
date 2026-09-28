@@ -277,6 +277,24 @@ func (c *Client) CreatePlaylist(ctx context.Context, name string) (Playlist, err
 	return pl, err
 }
 
+// PlaylistChanges are edits to a playlist's details. Nil fields stay as
+// they are.
+type PlaylistChanges struct {
+	Name        *string `json:"name,omitempty"`
+	Description *string `json:"description,omitempty"`
+}
+
+// EditPlaylist changes a playlist's name or description.
+func (c *Client) EditPlaylist(ctx context.Context, playlistID string, changes PlaylistChanges) error {
+	return c.do(ctx, http.MethodPut, "/playlists/"+playlistID, nil, changes, nil)
+}
+
+// DeletePlaylist deletes one of the user's playlists. Spotify has no real
+// delete: its own apps just have the owner unfollow the playlist.
+func (c *Client) DeletePlaylist(ctx context.Context, playlistID string) error {
+	return c.RemoveFromLibrary(ctx, []string{"spotify:playlist:" + playlistID})
+}
+
 // AddToPlaylist appends tracks to a playlist, in order.
 func (c *Client) AddToPlaylist(ctx context.Context, playlistID string, uris []string) error {
 	for chunk := range slices.Chunk(uris, playlistAddLimit) {
