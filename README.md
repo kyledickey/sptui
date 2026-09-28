@@ -18,7 +18,17 @@ curl -fsSL https://sptui.sh/install.sh | bash
 That downloads sptui from the [latest release](https://github.com/kyledickey/sptui/releases/latest)
 into `~/.local/bin`, for macOS or Linux (x86-64 or ARM). The audio codecs are
 built in, so there's nothing else to install; on Linux it also installs ALSA's
-library if it's missing. Run it again to update.
+library if it's missing.
+
+### Updating
+
+sptui checks for a new release once a day. When there is one, a note at the
+top of the sidebar says so: press `U` to install it while the music keeps
+playing, then `U` again to restart. Or, from a terminal:
+
+```sh
+sptui update
+```
 
 ### By hand
 
@@ -92,6 +102,7 @@ pixelated.
 | ------------------------------ | --------------------------------------------- |
 | `sptui`                        | start                                         |
 | `sptui login` / `sptui logout` | switch account / forget the login             |
+| `sptui update`                 | install the latest release (`-check`: look)   |
 | `-demo`                        | fake library, no account needed               |
 | `-debug`                       | include debug messages in the log             |
 | `-log path`                    | log file (default `~/.cache/sptui/sptui.log`) |
@@ -117,7 +128,8 @@ doubt, press **`m`** on anything to see what you can do with it.
 | `u`         | account / log out             | `o`       | now playing + lyrics     |
 | `,`         | settings                      | `P` / `S` | play / shuffle this page |
 | `1`–`6`     | search result tabs            | `.`       | actions for this page    |
-| `g` / `G`   | top / bottom                  | `q`       | quit                     |
+| `g` / `G`   | top / bottom                  | `U`       | update sptui             |
+|             |                               | `q`       | quit                     |
 
 Mouse: scroll with the wheel, click to select, click again to play or open.
 

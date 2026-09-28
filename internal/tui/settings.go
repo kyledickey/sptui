@@ -225,6 +225,8 @@ func (m *Model) settings() []setting {
 			action: func() tea.Cmd { m.outcome = LogOut; return m.quit() },
 		},
 	}
+	account := slices.IndexFunc(list, func(s setting) bool { return s.section == "Account" })
+	list = slices.Insert(list, account, m.updateSettings()...)
 	if m.needsRestart {
 		list = append(list, setting{
 			section: "Account", label: "Restart sptui to apply changes",
@@ -350,6 +352,12 @@ func (m *Model) applySetting(s setting, value string) tea.Cmd {
 	// Live changes.
 	if old.Theme.Accent != cfg.Theme.Accent {
 		m.setTheme(m.dark)
+	}
+	if old.CheckUpdates != cfg.CheckUpdates && m.upd.stage == updateIdle {
+		m.upd.latest = "" // off hides the notice; on looks again
+		if cfg.CheckUpdates && m.opts.Updates != nil {
+			return m.checkUpdates(false)
+		}
 	}
 	if old.Theme.Intro != cfg.Theme.Intro {
 		return m.playIntro(cfg.Theme.Intro, true)

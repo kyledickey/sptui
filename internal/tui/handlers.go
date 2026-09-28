@@ -95,6 +95,8 @@ func (m *Model) globalKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return tea.Batch(m.devicesMenu(), m.startSpinner()), true
 	case key.Matches(msg, k.Account):
 		m.menu = m.accountMenu()
+	case key.Matches(msg, k.Update):
+		return m.updateKey(), true
 	case key.Matches(msg, k.Settings):
 		if p := m.current(); p != nil && p.settings {
 			m.back()
