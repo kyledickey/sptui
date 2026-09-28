@@ -725,6 +725,13 @@ func (m *Model) loadPlaylists(offset int) tea.Cmd {
 
 func (m *Model) reloadPlaylists() tea.Cmd {
 	m.playlistGen++
+	uri := func(i int) string {
+		if i < len(m.sidebar.items) && m.sidebar.items[i].playlist != nil {
+			return m.sidebar.items[i].uri
+		}
+		return ""
+	}
+	m.sidebar.keepActive, m.sidebar.keepCursor = uri(m.sidebar.active), uri(m.sidebar.cursor)
 	items := m.sidebar.items[:0]
 	for _, it := range m.sidebar.items {
 		if it.playlist == nil {
