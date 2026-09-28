@@ -763,6 +763,22 @@ func TestNowPlayingView(t *testing.T) {
 	}
 }
 
+func TestNowPlayingFromSidebarGoesBack(t *testing.T) {
+	d := newDriver(t, 140, 45)
+	under := d.page().title
+	d.open("Now Playing")
+	if !d.m.showingNowPlaying() {
+		t.Fatal("the sidebar item didn't open the now-playing view")
+	}
+	d.press("esc")
+	if d.m.showingNowPlaying() {
+		t.Fatal("esc didn't leave the now-playing view")
+	}
+	if got := d.page().title; got != under {
+		t.Errorf("back on %q, want %q", got, under)
+	}
+}
+
 func TestNowPlayingLayoutFits(t *testing.T) {
 	for _, mode := range []art.Mode{art.Off, art.Blocks, art.Kitty} {
 		for _, sz := range [][2]int{{60, 16}, {80, 24}, {120, 35}, {220, 60}} {
