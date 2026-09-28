@@ -40,9 +40,10 @@ const (
 )
 
 type updateState struct {
-	latest string // a release newer than this one, once known
-	stage  updateStage
-	err    string // why installing failed
+	latest  string // a release newer than this one, once known
+	checked bool   // a check has answered
+	stage   updateStage
+	err     string // why installing failed
 }
 
 type (
@@ -91,6 +92,7 @@ func (m *Model) handleUpdate(msg tea.Msg) tea.Cmd {
 		return tea.Batch(m.scheduleRecheck(), pick(m.cfg.CheckUpdates, m.checkUpdates(false), nil))
 
 	case updateCheckMsg:
+		m.upd.checked = m.upd.checked || msg.err == nil
 		switch {
 		case msg.err != nil:
 			m.log.Warn("check for updates", "err", msg.err)
@@ -211,6 +213,28 @@ func (m *Model) updateMarker() string {
 		return m.st.status.Render(m.spinner.View()+" "+m.upd.latest) + "  "
 	}
 	return m.st.status.Render("↑ "+m.upd.latest) + m.st.keyDesc.Render(" ") + m.st.key.Render("U") + m.st.keyDesc.Render(" update  ")
+}
+
+// versionState is a few words for the settings header on whether this is
+// the latest sptui.
+func (m *Model) versionState() string {
+	switch {
+	case m.opts.Updates == nil:
+		return ""
+	case m.upd.stage == updateInstalling:
+		return m.st.status.Render(m.spinner.View() + " downloading " + m.upd.latest)
+	case m.upd.stage == updateReady:
+		return m.st.status.Render("✓ "+m.upd.latest+" installed ") + m.st.key.Render("U") + m.st.keyDesc.Render(" restart")
+	case m.upd.stage == updateFailed:
+		return m.st.errText.Render("✗ update failed")
+	case m.upd.latest != "":
+		return m.st.status.Render("↑ "+m.upd.latest+" is out ") + m.st.key.Render("U") + m.st.keyDesc.Render(" update")
+	case !m.cfg.CheckUpdates:
+		return m.st.off.Render("not checking for updates")
+	case m.upd.checked:
+		return m.st.subtitle.Render("✓ up to date")
+	}
+	return ""
 }
 
 // updateSettings are the settings screen's lines about updates.

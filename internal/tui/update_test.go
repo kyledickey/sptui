@@ -182,3 +182,17 @@ func TestUpdateBoxClick(t *testing.T) {
 		t.Fatalf("sidebar click opened %q", d.page().title)
 	}
 }
+
+func TestSettingsShowVersion(t *testing.T) {
+	d := newUpdateDriver(t, &fakeUpdater{})
+	d.press(",")
+	if s := d.screen(); !strings.Contains(s, "sptui v0.1.0") || !strings.Contains(s, "up to date") {
+		t.Fatalf("no version in the settings header:\n%s", s)
+	}
+
+	d = newUpdateDriver(t, &fakeUpdater{latest: "v0.2.0"})
+	d.press(",")
+	if s := d.screen(); !strings.Contains(s, "sptui v0.1.0") || !strings.Contains(s, "v0.2.0 is out") {
+		t.Fatalf("the header doesn't mention the new release:\n%s", s)
+	}
+}

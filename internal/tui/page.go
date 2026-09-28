@@ -191,6 +191,7 @@ type page struct {
 	origin     spotify.Origin // where the rows came from, for the cache marker
 	nowPlaying bool           // the big now-playing view
 	settings   bool           // the settings screen
+	hits       settingsHits   // settings: what's where on screen, for clicks
 }
 
 func newPage(title string, kind rowKind, load loadFunc) *page {

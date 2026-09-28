@@ -389,8 +389,7 @@ func (m *Model) viewMain() string {
 	case p.grid:
 		return box(append(m.pageHeader(p, cw), m.viewGrid(p, cw, focused)...))
 	case p.settings:
-		title := m.pageHeader(p, cw)[:2]
-		return box(append(append(title, ""), m.viewSettings(p, cw, h-2-3)...))
+		return box(m.viewSettings(p, cw, h-2))
 	}
 	lines := m.pageHeader(p, cw)
 
