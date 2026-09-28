@@ -158,6 +158,7 @@ func (k keyMap) legends() []legend {
 		{k.Radio, []string{"radio"}, forPlaying},
 
 		{k.Menu, []string{"actions", "menu"}, forLibrary},
+		{k.PageMenu, []string{"page ⋯", "⋯"}, forLibrary},
 		{k.NowMenu, []string{"▶ menu", "▶ ⋯"}, forLibrary},
 		{k.Like, []string{"like"}, forLibrary},
 		{k.LikePlaying, []string{"like ▶", "♥ ▶"}, forLibrary},

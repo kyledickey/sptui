@@ -57,7 +57,10 @@ func (m *Model) actionsMenu(r row, from *page) *menu {
 		} else {
 			add("Like / unlike", func() tea.Cmd { return m.toggleSaved(r) })
 		}
-		add("Add to playlist…", func() tea.Cmd { m.menu = m.playlistPicker(t); return nil })
+		add("Add to playlist", func() tea.Cmd {
+			m.menu = m.playlistPicker("“"+t.Name+"”", func(context.Context) ([]string, error) { return []string{t.URI}, nil })
+			return nil
+		})
 		if t.Show != nil && t.Show.ID != "" {
 			sh := *t.Show
 			add("Go to podcast", func() tea.Cmd { return m.push(showPage(m.backend, sh)) })
@@ -77,7 +80,9 @@ func (m *Model) actionsMenu(r row, from *page) *menu {
 		if radioURI(r) != "" {
 			add("Start radio", func() tea.Cmd { return m.startRadio(r) })
 		}
-		add("Open", func() tea.Cmd { return m.push(openRow(m.backend, r)) })
+		if p := m.current(); p == nil || p.self == nil || p.self.uri() != uri {
+			add("Open", func() tea.Cmd { return m.push(openRow(m.backend, r)) })
+		}
 		label := "Save / remove from library"
 		if r.kind == kindArtist || r.kind == kindShow {
 			label = "Follow / unfollow"
@@ -86,7 +91,15 @@ func (m *Model) actionsMenu(r row, from *page) *menu {
 			add(label, func() tea.Cmd { return m.toggleSaved(r) })
 		}
 		if r.kind == kindAlbum {
-			for _, ar := range r.album.Artists {
+			al := r.album
+			add("Like all songs", func() tea.Cmd { return m.likeAll(al) })
+			add("Add to playlist", func() tea.Cmd {
+				m.menu = m.playlistPicker("“"+al.Name+"”", func(ctx context.Context) ([]string, error) {
+					return m.albumTrackURIs(ctx, al)
+				})
+				return nil
+			})
+			for _, ar := range al.Artists {
 				add("Go to "+ar.Name, func() tea.Cmd { return m.push(artistPage(m.backend, ar)) })
 			}
 		}
@@ -159,8 +172,9 @@ func (m *Model) setDevices(msg devicesMsg) {
 	}
 }
 
-// playlistPicker lists playlists the user can add t to.
-func (m *Model) playlistPicker(t spotify.Track) *menu {
+// playlistPicker lists playlists the user can add songs to. what names the
+// songs in the status line; uris fetches them once a playlist is picked.
+func (m *Model) playlistPicker(what string, uris func(context.Context) ([]string, error)) *menu {
 	mn := &menu{title: "Add to playlist", empty: "You don't have any playlists you can edit."}
 	for _, pl := range m.sidebar.playlists() {
 		if !pl.EditableBy(m.me.ID) {
@@ -170,8 +184,12 @@ func (m *Model) playlistPicker(t spotify.Track) *menu {
 			label: pl.Name,
 			note:  fmt.Sprint(pl.TrackCount()),
 			run: func() tea.Cmd {
-				return m.act("add to playlist", "Added to "+pl.Name, func(ctx context.Context) error {
-					return m.backend.AddToPlaylist(ctx, pl.ID, []string{t.URI})
+				return m.act("add to playlist", "Added "+what+" to "+pl.Name, func(ctx context.Context) error {
+					u, err := uris(ctx)
+					if err != nil {
+						return err
+					}
+					return m.backend.AddToPlaylist(ctx, pl.ID, u)
 				})
 			},
 		})

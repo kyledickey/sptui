@@ -8,8 +8,8 @@ type keyMap struct {
 	// Navigation
 	Up, Down, Top, Bottom, PageUp, PageDown   key.Binding
 	Enter, Back, Focus, FocusLeft, FocusRight key.Binding
-	Search, Filter, Menu, NowMenu, Reload     key.Binding
-	NowPlaying, Settings                      key.Binding
+	Search, Filter, Menu, PageMenu, Reload    key.Binding
+	NowMenu, NowPlaying, Settings             key.Binding
 
 	// Playback
 	PlayPause, Next, Prev, SeekBack, SeekFwd key.Binding
@@ -40,7 +40,8 @@ func newKeyMap() keyMap {
 		FocusRight: b("→", "list", "right"),
 		Search:     b("/", "search", "/"),
 		Filter:     b("f", "filter", "f"),
-		Menu:       b("m", "actions", "m", "."),
+		Menu:       b("m", "actions", "m"),
+		PageMenu:   b(".", "page actions", "."),
 		NowMenu:    b("M", "now playing actions", "M"),
 		Reload:     b("ctrl+r", "reload", "ctrl+r"),
 		NowPlaying: b("o", "now playing + lyrics", "o"),
@@ -75,7 +76,7 @@ func (k keyMap) helpGroups() []helpGroup {
 	return []helpGroup{
 		{"Navigate", []key.Binding{k.Up, k.Down, k.Top, k.Bottom, k.PageDown, k.Enter, k.Back, k.Focus, k.Search, k.Filter, k.NowPlaying, k.Reload}},
 		{"Playback", []key.Binding{k.PlayPause, k.Next, k.Prev, k.SeekBack, k.SeekFwd, k.VolUp, k.VolDown, k.Shuffle, k.Repeat, k.PlayAll, k.ShuffleAll, k.Radio, k.Devices}},
-		{"Library", []key.Binding{k.Menu, k.NowMenu, k.Like, k.LikePlaying, k.Queue, k.Settings, k.Account, k.Help, k.Quit}},
+		{"Library", []key.Binding{k.Menu, k.PageMenu, k.NowMenu, k.Like, k.LikePlaying, k.Queue, k.Settings, k.Account, k.Help, k.Quit}},
 	}
 }
 

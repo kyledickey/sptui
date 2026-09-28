@@ -16,6 +16,7 @@ const (
 	artistAlbumsLimit = 10
 	searchLimit       = 10
 	libraryURIsLimit  = 40
+	playlistAddLimit  = 100
 )
 
 // Wrappers Spotify puts around items in some collections.
@@ -269,9 +270,14 @@ func (c *Client) libraryEdit(ctx context.Context, method string, uris []string) 
 	return nil
 }
 
-// AddToPlaylist appends tracks to a playlist.
+// AddToPlaylist appends tracks to a playlist, in order.
 func (c *Client) AddToPlaylist(ctx context.Context, playlistID string, uris []string) error {
-	return c.do(ctx, http.MethodPost, "/playlists/"+playlistID+"/items", nil, map[string]any{"uris": uris}, nil)
+	for chunk := range slices.Chunk(uris, playlistAddLimit) {
+		if err := c.do(ctx, http.MethodPost, "/playlists/"+playlistID+"/items", nil, map[string]any{"uris": chunk}, nil); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // derefPage drops nil entries, which Spotify sometimes returns for

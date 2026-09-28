@@ -371,7 +371,7 @@ func (m *Model) heroButtons() [bigRows]string {
 	return joinCaps(
 		m.keycap("▶ play", k.PlayAll.Help().Key, false, 8),
 		m.keycap("⇄ shuffle", k.ShuffleAll.Help().Key, false, 11),
-		m.keycap("⋯ more", k.Menu.Help().Key, false, 8),
+		m.keycap("⋯ more", k.PageMenu.Help().Key, false, 8),
 	)
 }
 

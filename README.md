@@ -116,7 +116,7 @@ doubt, press **`m`** on anything to see what you can do with it.
 | `a`         | add to queue                  | `ctrl+r`  | reload                   |
 | `u`         | account / log out             | `o`       | now playing + lyrics     |
 | `,`         | settings                      | `P` / `S` | play / shuffle this page |
-| `1`–`6`     | search result tabs            |           |                          |
+| `1`–`6`     | search result tabs            | `.`       | actions for this page    |
 | `g` / `G`   | top / bottom                  | `q`       | quit                     |
 
 Mouse: scroll with the wheel, click to select, click again to play or open.

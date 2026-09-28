@@ -456,6 +456,48 @@ func (d *driver) openFirstAlbum() {
 	}
 }
 
+// TestAlbumPageMenu checks that "more" acts on the album, not the song under
+// the cursor, and can add the whole album to a playlist.
+func TestAlbumPageMenu(t *testing.T) {
+	d := newDriver(t, 120, 40)
+	d.openFirstAlbum()
+	p := d.page()
+	d.press(".")
+	if d.m.menu == nil || d.m.menu.title != p.self.name() {
+		t.Fatalf("menu = %+v, want the album's", d.m.menu)
+	}
+	pick := func(label string) {
+		t.Helper()
+		for i, it := range d.m.menu.items {
+			if it.label == label {
+				d.m.menu.cursor = i
+				d.press("enter")
+				return
+			}
+		}
+		t.Fatalf("menu has no %q", label)
+	}
+	pick("Add to playlist")
+	pl := d.m.menu.items[0].label
+	before := d.m.sidebar.playlists()
+	d.press("enter")
+	if d.m.status.err || !strings.HasPrefix(d.m.status.text, "Added “"+p.self.name()+"” to "+pl) {
+		t.Fatalf("status = %+v", d.m.status)
+	}
+	d.run(d.m.reloadPlaylists())
+	for i, after := range d.m.sidebar.playlists() {
+		if after.Name == pl && after.TrackCount() != before[i].TrackCount()+len(p.rows) {
+			t.Fatalf("%s has %d songs, want %d", pl, after.TrackCount(), before[i].TrackCount()+len(p.rows))
+		}
+	}
+
+	d.press(".")
+	pick("Like all songs")
+	if d.m.status.err || !strings.HasPrefix(d.m.status.text, "Liked every song") {
+		t.Fatalf("status = %+v", d.m.status)
+	}
+}
+
 func TestCoverArtBlocks(t *testing.T) {
 	d := newDriverWith(t, 120, 40, demo.New(), Options{Config: withArt(art.Blocks)})
 	d.openFirstAlbum()
