@@ -19,7 +19,7 @@ type keyMap struct {
 	// Library
 	Like, LikePlaying, Queue, Account key.Binding
 
-	Help, Quit key.Binding
+	Update, Help, Quit key.Binding
 }
 
 func newKeyMap() keyMap {
@@ -66,8 +66,9 @@ func newKeyMap() keyMap {
 		Queue:       b("a", "queue", "a"),
 		Account:     b("u", "account / log out", "u"),
 
-		Help: b("?", "help", "?"),
-		Quit: b("q", "quit", "q", "ctrl+c"),
+		Update: b("U", "update sptui", "U"),
+		Help:   b("?", "help", "?"),
+		Quit:   b("q", "quit", "q", "ctrl+c"),
 	}
 }
 
@@ -76,7 +77,7 @@ func (k keyMap) helpGroups() []helpGroup {
 	return []helpGroup{
 		{"Navigate", []key.Binding{k.Up, k.Down, k.Top, k.Bottom, k.PageDown, k.Enter, k.Back, k.Focus, k.Search, k.Filter, k.NowPlaying, k.Reload}},
 		{"Playback", []key.Binding{k.PlayPause, k.Next, k.Prev, k.SeekBack, k.SeekFwd, k.VolUp, k.VolDown, k.Shuffle, k.Repeat, k.PlayAll, k.ShuffleAll, k.Radio, k.Devices}},
-		{"Library", []key.Binding{k.Menu, k.PageMenu, k.NowMenu, k.Like, k.LikePlaying, k.Queue, k.Settings, k.Account, k.Help, k.Quit}},
+		{"Library", []key.Binding{k.Menu, k.PageMenu, k.NowMenu, k.Like, k.LikePlaying, k.Queue, k.Settings, k.Account, k.Update, k.Help, k.Quit}},
 	}
 }
 

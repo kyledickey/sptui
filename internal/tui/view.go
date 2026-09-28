@@ -190,6 +190,9 @@ func (m *Model) viewHeader() string {
 	}
 	right := m.st.crumb.Render(m.me.Name()+"  ") + m.st.key.Render(",") + m.st.keyDesc.Render(" settings  ") +
 		m.st.key.Render("?") + m.st.keyDesc.Render(" help ")
+	if m.showingNowPlaying() { // no sidebar to show the update in
+		right = m.updateMarker() + right
+	}
 	return spread(left, right, m.width)
 }
 
@@ -248,6 +251,8 @@ func (m *Model) viewFooter() string {
 func (m *Model) viewSidebar() string {
 	w, h := m.sidebarWidth(), m.bodyHeight()
 	inner, rows := w-2, h-2
+	box := m.sidebarUpdateBox()
+	rows -= len(box)
 	sb := &m.sidebar
 	sb.scrollTo(rows)
 	focused := m.focus == focusSidebar && m.menu == nil
@@ -262,7 +267,8 @@ func (m *Model) viewSidebar() string {
 		}
 	}
 
-	var lines []string
+	lines := box // the update, if there is one, comes first
+	rows += len(box)
 	for i := sb.scroll; i < len(sb.items) && len(lines) < rows; i++ {
 		it := sb.items[i]
 		if it.header {
@@ -274,7 +280,6 @@ func (m *Model) viewSidebar() string {
 	if !sb.loaded && rows > len(lines) {
 		lines = append(lines, m.st.rowMuted.Render("   "+m.spinner.View()+" loading playlists…"))
 	}
-
 	style := m.st.panel
 	if focused {
 		style = m.st.panelFocused

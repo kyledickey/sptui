@@ -165,6 +165,7 @@ func (k keyMap) legends() []legend {
 		{k.Queue, []string{"queue"}, forLibrary},
 		{k.Settings, []string{"config", "setup"}, forLibrary},
 		{k.Account, []string{"account", "you"}, forLibrary},
+		{k.Update, []string{"update", "new"}, forLibrary},
 		{k.Help, []string{"help"}, forLibrary},
 		{k.Quit, []string{"quit"}, forLibrary},
 	}

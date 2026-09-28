@@ -41,17 +41,25 @@ type Options struct {
 	KeepAwake func(on bool)
 	// Intro plays the startup animation Config names, if any.
 	Intro bool
-	Log   *slog.Logger // required
+	// Version is sptui's own, like v1.2.0, shown in the settings.
+	Version string
+	// Updates finds and installs newer releases. Nil means this build
+	// doesn't update itself: a development build, or the demo.
+	Updates Updater
+	// Status is shown in the footer at startup, like "Updated to …".
+	Status string
+	Log    *slog.Logger // required
 }
 
 // Outcome says why the UI exited.
 type Outcome int
 
 const (
-	Quit    Outcome = iota // the user quit
-	LogOut                 // log out, then quit
-	LogIn                  // log out, then log in again (e.g. to switch account)
-	Restart                // start again with the saved settings
+	Quit     Outcome = iota // the user quit
+	LogOut                  // log out, then quit
+	LogIn                   // log out, then log in again (e.g. to switch account)
+	Restart                 // start again with the saved settings
+	Relaunch                // an update was installed; start it in place of this one
 )
 
 type focusArea int
@@ -121,6 +129,8 @@ type Model struct {
 	lyricsFound map[string]lyricsState
 
 	playlistGen int // discards playlist pages from before a reload
+
+	upd updateState // a newer release, and installing it
 
 	outcome      Outcome
 	cfg          config.Config // current settings
@@ -199,6 +209,10 @@ func New(b Backend, opts Options) *Model {
 		dark:        true,
 	}
 	m.player.every = cmp.Or(opts.PollInterval, 5*time.Second)
+	if opts.Status != "" {
+		m.setStatus(opts.Status, false)
+		m.status.until = time.Now().Add(updateNotice)
+	}
 	m.setTheme(true)
 	if opts.Intro {
 		m.playIntro(opts.Config.Theme.Intro, false) // Init starts the ticks
@@ -242,6 +256,7 @@ func (m *Model) Init() tea.Cmd {
 		tea.RequestBackgroundColor,
 		requestCellSize(),
 		pick(m.intro != nil, introTick(), nil),
+		m.initUpdates(),
 	)
 }
 
@@ -313,6 +328,8 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case swatchMsg:
 		m.handleSwatch(msg)
 		return nil
+	case updateCheckMsg, updateRecheckMsg, updateInstalledMsg:
+		return m.handleUpdate(msg)
 	}
 	return m.handleData(msg)
 }
@@ -604,7 +621,8 @@ func (m *Model) setStatus(text string, isErr bool) {
 // busy reports whether anything on screen is waiting on the network.
 func (m *Model) busy() bool {
 	p := m.current()
-	return (p != nil && p.loading) || (m.menu != nil && m.menu.loading) || m.lyrics.loading
+	return (p != nil && p.loading) || (m.menu != nil && m.menu.loading) || m.lyrics.loading ||
+		m.upd.stage == updateInstalling
 }
 
 func (m *Model) startSpinner() tea.Cmd {

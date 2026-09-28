@@ -60,7 +60,15 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 			return nil
 		}
 		if inSidebar {
-			i := m.sidebar.scroll + ms.Y - top
+			// The update box sits above the library.
+			box := len(m.sidebarUpdateBox())
+			if ms.Y < top+box {
+				if ms.Y < top+box-1 { // not the gap below it
+					return m.updateKey()
+				}
+				return nil
+			}
+			i := m.sidebar.scroll + ms.Y - top - box
 			if i < len(m.sidebar.items) && !m.sidebar.items[i].header {
 				m.sidebar.cursor = i
 				return m.openNav(i)

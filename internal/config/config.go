@@ -22,6 +22,10 @@ type Config struct {
 	ClientID    string `toml:"client_id"`
 	RedirectURI string `toml:"redirect_uri"`
 
+	// CheckUpdates looks for new releases of sptui once a day and says
+	// when there is one.
+	CheckUpdates bool `toml:"check_updates"`
+
 	Player Player `toml:"player"`
 	Theme  Theme  `toml:"theme"`
 }
@@ -69,8 +73,9 @@ type Theme struct {
 // Default returns the built-in configuration.
 func Default() Config {
 	return Config{
-		Player: Player{Enabled: true, Name: "sptui", Bitrate: 320, KeepAwake: "playing"},
-		Theme:  Theme{CoverArt: "auto", ScrollTitles: true, NowPlayingCover: "medium", NowPlayingPanels: "123", Intro: "vinyl"},
+		CheckUpdates: true,
+		Player:       Player{Enabled: true, Name: "sptui", Bitrate: 320, KeepAwake: "playing"},
+		Theme:        Theme{CoverArt: "auto", ScrollTitles: true, NowPlayingCover: "medium", NowPlayingPanels: "123", Intro: "vinyl"},
 	}
 }
 
@@ -159,6 +164,10 @@ const template = `# sptui configuration. Everything here is optional.
 # and put its Client ID here.
 # client_id = ""
 # redirect_uri = "http://127.0.0.1:8989/login"
+
+# Look for new releases once a day, and say when there's one. Install it
+# with U in sptui, or by running: sptui update
+# check_updates = true
 
 [player]
 # Play music in sptui itself. Set to false to only control other devices.
