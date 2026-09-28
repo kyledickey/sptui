@@ -47,6 +47,7 @@ func newSidebar() sidebar {
 			{icon: "▶", label: "Now Playing", open: func(m *Model) *page { return nowPlayingPage(m.backend) }},
 			{header: true}, // a gap
 			{label: "Playlists", header: true},
+			{icon: "+", label: "New playlist", play: func(m *Model) tea.Cmd { return m.newPlaylist("", nil) }},
 		},
 	}
 }

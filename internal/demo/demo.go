@@ -417,6 +417,18 @@ func (b *Backend) RemoveFromLibrary(ctx context.Context, uris []string) error {
 	return nil
 }
 
+func (b *Backend) CreatePlaylist(ctx context.Context, name string) (spotify.Playlist, error) {
+	if err := b.wait(ctx); err != nil {
+		return spotify.Playlist{}, err
+	}
+	defer b.mu.Unlock()
+	id := fmt.Sprintf("new%d", len(b.playlists))
+	pl := spotify.Playlist{ID: id, Name: name, URI: "spotify:playlist:" + id, Owner: b.me, Items: &spotify.Count{}}
+	b.playlists = append([]spotify.Playlist{pl}, b.playlists...) // newest first, like Spotify
+	b.plTracks[id] = nil
+	return pl, nil
+}
+
 func (b *Backend) AddToPlaylist(ctx context.Context, id string, uris []string) error {
 	if err := b.wait(ctx); err != nil {
 		return err

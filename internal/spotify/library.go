@@ -270,6 +270,13 @@ func (c *Client) libraryEdit(ctx context.Context, method string, uris []string) 
 	return nil
 }
 
+// CreatePlaylist makes a new, empty playlist owned by the current user.
+func (c *Client) CreatePlaylist(ctx context.Context, name string) (Playlist, error) {
+	var pl Playlist
+	err := c.do(ctx, http.MethodPost, "/me/playlists", nil, map[string]any{"name": name}, &pl)
+	return pl, err
+}
+
 // AddToPlaylist appends tracks to a playlist, in order.
 func (c *Client) AddToPlaylist(ctx context.Context, playlistID string, uris []string) error {
 	for chunk := range slices.Chunk(uris, playlistAddLimit) {

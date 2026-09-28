@@ -478,9 +478,9 @@ func TestAlbumPageMenu(t *testing.T) {
 		t.Fatalf("menu has no %q", label)
 	}
 	pick("Add to playlist")
-	pl := d.m.menu.items[0].label
+	pl := d.m.menu.items[1].label // after "New playlist"
 	before := d.m.sidebar.playlists()
-	d.press("enter")
+	d.press("j", "enter")
 	if d.m.status.err || !strings.HasPrefix(d.m.status.text, "Added “"+p.self.name()+"” to "+pl) {
 		t.Fatalf("status = %+v", d.m.status)
 	}
@@ -495,6 +495,52 @@ func TestAlbumPageMenu(t *testing.T) {
 	pick("Like all songs")
 	if d.m.status.err || !strings.HasPrefix(d.m.status.text, "Liked every song") {
 		t.Fatalf("status = %+v", d.m.status)
+	}
+}
+
+// TestNewPlaylist makes a playlist from the sidebar, then another with an
+// album in it from the album's menu.
+func TestNewPlaylist(t *testing.T) {
+	d := newDriver(t, 120, 40)
+	d.m.sidebar.cursor = d.navIndex("New playlist")
+	d.press("tab", "enter")
+	if d.m.menu == nil || d.m.menu.answer == nil {
+		t.Fatalf("menu = %+v, want a name prompt", d.m.menu)
+	}
+	d.press("enter") // no name yet: nothing happens
+	if d.m.menu == nil {
+		t.Fatal("an empty name closed the prompt")
+	}
+	d.typeText("quiet mornings")
+	d.press("enter")
+	if d.m.menu != nil || d.m.inputMode != inputNone {
+		t.Fatal("the prompt stayed open")
+	}
+	if d.m.status.text != "Created “quiet mornings”" {
+		t.Fatalf("status = %+v", d.m.status)
+	}
+	if pls := d.m.sidebar.playlists(); len(pls) == 0 || pls[0].Name != "quiet mornings" {
+		t.Fatalf("sidebar playlists = %+v", pls)
+	}
+
+	d.m.focus = focusMain
+	d.openFirstAlbum()
+	album := d.page()
+	d.press(".")
+	for i, it := range d.m.menu.items {
+		if it.label == "Add to playlist" {
+			d.m.menu.cursor = i
+		}
+	}
+	d.press("enter", "enter") // "New playlist" comes first
+	d.typeText("an album")
+	d.press("enter")
+	if d.m.status.err || d.m.status.text != "Added “"+album.self.name()+"” to an album" {
+		t.Fatalf("status = %+v", d.m.status)
+	}
+	pl := d.m.sidebar.playlists()[0]
+	if pl.Name != "an album" || pl.TrackCount() != len(album.rows) {
+		t.Fatalf("new playlist = %s with %d songs, want %d", pl.Name, pl.TrackCount(), len(album.rows))
 	}
 }
 

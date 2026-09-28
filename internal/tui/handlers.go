@@ -239,6 +239,9 @@ func (m *Model) listKey(msg tea.KeyPressMsg, p *page) tea.Cmd {
 
 func (m *Model) menuKey(msg tea.KeyPressMsg) tea.Cmd {
 	k, mn := m.keys, m.menu
+	if mn.answer != nil {
+		return m.answerKey(msg)
+	}
 	switch {
 	case key.Matches(msg, k.Up):
 		mn.move(-1)
@@ -255,6 +258,25 @@ func (m *Model) menuKey(msg tea.KeyPressMsg) tea.Cmd {
 		return mn.items[mn.cursor].run()
 	}
 	return nil
+}
+
+// answerKey handles typing into a menu that asks for text.
+func (m *Model) answerKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch msg.String() {
+	case "esc":
+		m.menu = nil
+		m.closeInput()
+		return nil
+	case "enter":
+		text, mn := strings.TrimSpace(m.input.Value()), m.menu
+		if text == "" {
+			return nil
+		}
+		m.menu = nil
+		m.closeInput()
+		return mn.answer(text)
+	}
+	return m.updateInput(msg)
 }
 
 func (m *Model) inputKey(msg tea.KeyPressMsg) tea.Cmd {

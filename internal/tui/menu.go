@@ -18,6 +18,11 @@ type menu struct {
 	cursor  int
 	loading bool
 	empty   string
+	// answer, if set, makes the menu a text box instead of a list; it's
+	// called with what was typed. See ask.
+	answer func(text string) tea.Cmd
+	prompt string // leads the text box
+	verb   string // what enter does
 }
 
 type menuItem struct {
@@ -30,6 +35,13 @@ func (mn *menu) move(delta int) {
 	if len(mn.items) > 0 {
 		mn.cursor = (mn.cursor + delta + len(mn.items)) % len(mn.items)
 	}
+}
+
+// playlistMadeMsg reports a new playlist, and adding songs to it.
+type playlistMadeMsg struct {
+	name, what string
+	made       bool
+	err        error
 }
 
 // devicesMsg carries devices for the device picker.
@@ -172,10 +184,16 @@ func (m *Model) setDevices(msg devicesMsg) {
 	}
 }
 
-// playlistPicker lists playlists the user can add songs to. what names the
-// songs in the status line; uris fetches them once a playlist is picked.
+// playlistPicker lists playlists the user can add songs to, after an
+// option to make a new one. what names the songs in the status line; uris
+// fetches them once a playlist is picked.
 func (m *Model) playlistPicker(what string, uris func(context.Context) ([]string, error)) *menu {
-	mn := &menu{title: "Add to playlist", empty: "You don't have any playlists you can edit."}
+	mn := &menu{title: "Add to playlist"}
+	mn.items = append(mn.items, menuItem{
+		label: "New playlist",
+		note:  "+",
+		run:   func() tea.Cmd { return m.newPlaylist(what, uris) },
+	})
 	for _, pl := range m.sidebar.playlists() {
 		if !pl.EditableBy(m.me.ID) {
 			continue
@@ -195,4 +213,38 @@ func (m *Model) playlistPicker(what string, uris func(context.Context) ([]string
 		})
 	}
 	return mn
+}
+
+// ask turns mn into a text box starting at value, and shows it.
+func (m *Model) ask(mn *menu, value, placeholder string) tea.Cmd {
+	m.menu = mn
+	m.inputMode = inputAnswer
+	m.input.Placeholder = placeholder
+	m.input.SetValue(value)
+	m.input.CursorEnd()
+	m.fitInput()
+	return m.input.Focus()
+}
+
+// newPlaylist asks for a name, then makes a playlist and adds the songs
+// uris fetches to it, if any.
+func (m *Model) newPlaylist(what string, uris func(context.Context) ([]string, error)) tea.Cmd {
+	return m.ask(&menu{title: "New playlist", prompt: "name › ", verb: "create", answer: func(name string) tea.Cmd {
+		return m.call(func(ctx context.Context) tea.Msg {
+			pl, err := m.backend.CreatePlaylist(ctx, name)
+			if err != nil {
+				return playlistMadeMsg{err: err}
+			}
+			msg := playlistMadeMsg{name: pl.Name, made: true}
+			if uris != nil {
+				msg.what = what
+				u, err := uris(ctx)
+				if err == nil {
+					err = m.backend.AddToPlaylist(ctx, pl.ID, u)
+				}
+				msg.err = err
+			}
+			return msg
+		})
+	}}, "", "Name it")
 }
