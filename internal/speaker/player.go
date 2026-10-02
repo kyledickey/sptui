@@ -182,6 +182,9 @@ func (s *Speaker) Play(ctx context.Context, opts spotify.PlayOptions) error {
 	if to != "" && !s.isHere(ctx, to) {
 		return s.remotePlay(ctx, to, opts)
 	}
+	if opts.DeviceID != "" {
+		s.choose("") // asked for here by name
+	}
 	var play daemon.ApiPlay
 	switch {
 	case opts.ContextURI == spotify.DJURI:
@@ -272,6 +275,9 @@ func (s *Speaker) Transfer(ctx context.Context, deviceID string, play bool) erro
 	switch {
 	case from == deviceID || (deviceID == st.DeviceId && st.Track != nil):
 		// Already there.
+		if deviceID == st.DeviceId {
+			s.choose("")
+		}
 		if !play {
 			return nil
 		}
@@ -281,11 +287,17 @@ func (s *Speaker) Transfer(ctx context.Context, deviceID string, play bool) erro
 		return s.command(ctx, deviceID, map[string]any{"endpoint": "resume"})
 	case from == st.DeviceId && st.Track == nil:
 		// Nothing is playing anywhere to move; the next play goes there.
-		if deviceID == st.DeviceId && play {
-			return s.send(ctx, daemon.ApiRequestTypeResume, nil)
+		if deviceID == st.DeviceId {
+			s.choose("")
+			if play {
+				return s.send(ctx, daemon.ApiRequestTypeResume, nil)
+			}
+			return nil
 		}
+		s.choose(deviceID)
 		return nil
 	}
+	s.choose("")
 	return s.transfer(ctx, from, deviceID, play)
 }
 

@@ -100,3 +100,22 @@ func TestDevicesFromCluster(t *testing.T) {
 		t.Fatalf("devices = %+v", devices)
 	}
 }
+
+func TestPlayGoesToDeviceChosenWhileIdle(t *testing.T) {
+	// Nothing plays anywhere; the user picks the phone.
+	s, _ := fakeSpeaker(t, &daemon.ApiStatus{DeviceId: "dev", Stopped: true})
+	s.watcher.set(phoneCluster(""))
+	if err := s.Transfer(context.Background(), "phone", true); err != nil {
+		t.Fatal(err)
+	}
+	if to := s.target(context.Background()); to != "phone" {
+		t.Fatalf("target = %q, want the chosen phone", to)
+	}
+	// Picking this computer again undoes it.
+	if err := s.Transfer(context.Background(), "dev", false); err != nil {
+		t.Fatal(err)
+	}
+	if to := s.target(context.Background()); to != "" {
+		t.Fatalf("target = %q, want this speaker", to)
+	}
+}

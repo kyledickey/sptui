@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -97,5 +98,17 @@ func TestOneSpeakerPerComputer(t *testing.T) {
 		u()
 	case <-time.After(time.Second):
 		t.Fatal("lockWait didn't get the freed lock")
+	}
+}
+
+func TestSocketPathFits(t *testing.T) {
+	short := filepath.Join("/home/me/.cache/sptui", "speaker.json")
+	if got := socketPath(short); got != "/home/me/.cache/sptui/speaker.sock" {
+		t.Errorf("socketPath(%q) = %q", short, got)
+	}
+	long := filepath.Join("/home/"+strings.Repeat("x", 120), ".cache/sptui/speaker.json")
+	got := socketPath(long)
+	if len(got) > maxSocketPath || got != socketPath(long) {
+		t.Errorf("socketPath of a long path = %q (%d bytes), want short and stable", got, len(got))
 	}
 }

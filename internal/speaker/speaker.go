@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -47,6 +48,10 @@ type Speaker struct {
 	meta    trackMeta
 	sock    string      // where the speaker takes requests from other sptuis
 	client  atomic.Bool // another sptui runs the speaker; requests go there
+	chosen  struct {    // see choose
+		sync.Mutex
+		id string
+	}
 }
 
 // HasLogin reports whether the speaker has a saved login, so it can start

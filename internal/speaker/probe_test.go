@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/devgianlu/go-librespot/daemon"
+
 	"github.com/kyledickey/sptui/internal/spotify"
 )
 
@@ -36,8 +38,16 @@ func TestProbeRemote(t *testing.T) {
 	defer a.Close()
 	defer b.Close()
 	for _, s := range []*Speaker{a, b} {
-		waitFor(t, "speaker ready", func() bool { return s.SetVolume(ctx, 0) == nil })
+		// Straight to the player: muting must never reach another device.
+		waitFor(t, "speaker ready", func() bool {
+			return s.send(ctx, daemon.ApiRequestTypeSetVolume, daemon.ApiSetVolume{Volume: 0}) == nil
+		})
 		<-s.watcher.ready
+	}
+	// Playing here would take the account's playback from whatever device
+	// has it, and the controls below would reach it.
+	if c, _ := a.watcher.snapshot(); c.GetActiveDeviceId() != "" {
+		t.Skipf("%q is playing on this account; not interrupting it", c.Device[c.ActiveDeviceId].GetName())
 	}
 	defer func() { _ = a.Pause(context.Background()); _ = b.Pause(context.Background()) }()
 

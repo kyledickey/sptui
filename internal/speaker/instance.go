@@ -2,8 +2,10 @@ package speaker
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"os"
@@ -21,9 +23,20 @@ import (
 // takes it over (with the same device ID, so Spotify sees the same
 // speaker).
 
-// socketPath is where the speaker takes requests from other sptuis.
+// maxSocketPath is the longest socket path every platform takes (macOS
+// allows 104 bytes, counting the terminating NUL).
+const maxSocketPath = 103
+
+// socketPath is where the speaker takes requests from other sptuis: beside
+// its state file, or, if that path is too long for a socket, in the temp
+// directory under a name made from it.
 func socketPath(statePath string) string {
-	return strings.TrimSuffix(statePath, filepath.Ext(statePath)) + ".sock"
+	path := strings.TrimSuffix(statePath, filepath.Ext(statePath)) + ".sock"
+	if len(path) <= maxSocketPath {
+		return path
+	}
+	sum := sha256.Sum256([]byte(statePath))
+	return filepath.Join(os.TempDir(), fmt.Sprintf("sptui-%d-%x.sock", os.Getuid(), sum[:6]))
 }
 
 type wireRequest struct {
@@ -45,6 +58,11 @@ func (s *Speaker) serve(ctx context.Context, log *slog.Logger) error {
 	var lc net.ListenConfig
 	l, err := lc.Listen(ctx, "unix", s.sock)
 	if err != nil {
+		return err
+	}
+	// Only this user's sptuis may drive the speaker.
+	if err := os.Chmod(s.sock, 0o600); err != nil {
+		_ = l.Close()
 		return err
 	}
 	context.AfterFunc(ctx, func() { _ = l.Close() })

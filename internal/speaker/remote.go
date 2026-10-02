@@ -16,6 +16,8 @@ import (
 	extmetadatapb "github.com/devgianlu/go-librespot/proto/spotify/extendedmetadata"
 	metadatapb "github.com/devgianlu/go-librespot/proto/spotify/metadata"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/kyledickey/sptui/internal/spotify"
 )
 
@@ -41,8 +43,9 @@ func (s *Speaker) remote(localID string) (*connectpb.Cluster, time.Time, bool) {
 }
 
 // target picks where a control goes: the active device when it's another
-// one, or "" for this speaker. The speaker playing right now wins over a
-// cluster that may not have caught up yet.
+// one, else the device picked while nothing played, or "" for this
+// speaker. The speaker playing right now wins over a cluster that may not
+// have caught up yet.
 func (s *Speaker) target(ctx context.Context) string {
 	st, err := s.status(ctx)
 	if err != nil || playingHere(st) {
@@ -51,7 +54,24 @@ func (s *Speaker) target(ctx context.Context) string {
 	if c, _, ok := s.remote(st.DeviceId); ok {
 		return c.ActiveDeviceId
 	}
+	if st.Track == nil {
+		return s.chosenDevice()
+	}
 	return ""
+}
+
+// choose remembers the device picked while nothing was playing, so the next
+// play goes there; "" means this speaker.
+func (s *Speaker) choose(id string) {
+	s.chosen.Lock()
+	s.chosen.id = id
+	s.chosen.Unlock()
+}
+
+func (s *Speaker) chosenDevice() string {
+	s.chosen.Lock()
+	defer s.chosen.Unlock()
+	return s.chosen.id
 }
 
 // remotePlayback turns the cluster's player state into what the UI shows.
@@ -145,22 +165,34 @@ func (s *Speaker) transfer(ctx context.Context, from, to string, play bool) erro
 		map[string]any{"transfer_options": map[string]any{"restore_paused": restore}})
 }
 
-// setRemoteVolume sets another device's volume.
+// setRemoteVolume sets another device's volume. Unlike the other commands,
+// this one is a protobuf.
 func (s *Speaker) setRemoteVolume(ctx context.Context, to string, percent int) error {
-	return s.connectRequest(ctx, http.MethodPut, "/connect-state/v1/connect/volume/from/"+s.watcher.id+"/to/"+to,
-		map[string]any{"volume": min(max(percent, 0), 100) * 65535 / 100})
+	data, err := proto.Marshal(&connectpb.SetVolumeCommand{
+		Volume:         int32(min(max(percent, 0), 100) * 65535 / 100),
+		SentByDeviceId: s.watcher.id,
+	})
+	if err != nil {
+		return err
+	}
+	return s.connectSend(ctx, http.MethodPut, "/connect-state/v1/connect/volume/from/"+s.watcher.id+"/to/"+to,
+		"application/x-protobuf", data)
 }
 
 func (s *Speaker) connectRequest(ctx context.Context, method, path string, body any) error {
-	sp := s.watcher.client()
-	if sp == nil {
-		return errNoObserver
-	}
 	data, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
-	resp, err := sp.Request(ctx, method, path, nil, http.Header{"Content-Type": {"application/json"}}, data)
+	return s.connectSend(ctx, method, path, "application/json", data)
+}
+
+func (s *Speaker) connectSend(ctx context.Context, method, path, contentType string, data []byte) error {
+	sp := s.watcher.client()
+	if sp == nil {
+		return errNoObserver
+	}
+	resp, err := sp.Request(ctx, method, path, nil, http.Header{"Content-Type": {contentType}}, data)
 	if err != nil {
 		return err
 	}
