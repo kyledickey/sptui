@@ -73,6 +73,15 @@ func (s *Speaker) playSession(ctx context.Context, uri, url, skipTo string) erro
 	if err != nil {
 		return err
 	}
+	return s.sessionCommand(ctx, sp, st.DeviceId, st.DeviceId, uri, url, skipTo)
+}
+
+// sessionCommand sends a Connect play command for uri, resolved at url,
+// from one device to another, through sp.
+func (s *Speaker) sessionCommand(ctx context.Context, sp *spclient.Spclient, from, to, uri, url, skipTo string) error {
+	if sp == nil {
+		return errNoObserver
+	}
 	skip := map[string]any{}
 	if skipTo != "" {
 		skip["track_uri"] = skipTo
@@ -86,8 +95,7 @@ func (s *Speaker) playSession(ctx context.Context, uri, url, skipTo string) erro
 	if err != nil {
 		return err
 	}
-	id := st.DeviceId
-	resp, err := sp.Request(ctx, "POST", "/connect-state/v1/player/command/from/"+id+"/to/"+id, nil, nil, body)
+	resp, err := sp.Request(ctx, "POST", "/connect-state/v1/player/command/from/"+from+"/to/"+to, nil, nil, body)
 	if err != nil {
 		return err
 	}

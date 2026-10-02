@@ -40,6 +40,14 @@ func (s *localServer) Close() error                      { return nil }
 
 // request sends one request to the player and waits for its reply.
 func (s *Speaker) request(ctx context.Context, typ daemon.ApiRequestType, data any) (any, error) {
+	if s.client.Load() {
+		return s.forward(ctx, typ, data)
+	}
+	return s.local(ctx, typ, data)
+}
+
+// local sends a request to the player running in this process.
+func (s *Speaker) local(ctx context.Context, typ daemon.ApiRequestType, data any) (any, error) {
 	req, wait := daemon.NewApiRequest(typ, data)
 	select {
 	case s.server.requests <- req:
@@ -69,14 +77,28 @@ func (s *Speaker) status(ctx context.Context) (*daemon.ApiStatus, error) {
 	return st, nil
 }
 
-// Playback reports what the speaker is playing, or nil if nothing.
+// playingHere reports whether the speaker itself is playing right now.
+func playingHere(st *daemon.ApiStatus) bool {
+	return st.Track != nil && !st.Paused && !st.Stopped
+}
+
+// Playback reports what the speaker is playing, or else what another of the
+// account's devices is, or nil if nothing.
 func (s *Speaker) Playback(ctx context.Context) (*spotify.PlaybackState, error) {
 	st, err := s.status(ctx)
 	if errors.Is(err, errNotReady) {
 		return nil, nil
 	}
-	if err != nil || st.Track == nil {
+	if err != nil {
 		return nil, err
+	}
+	if !playingHere(st) {
+		if c, at, ok := s.remote(st.DeviceId); ok {
+			return s.remotePlayback(ctx, c, at), nil
+		}
+	}
+	if st.Track == nil {
+		return nil, nil
 	}
 	t := st.Track
 	if st.ContextUri != nil && *st.ContextUri == spotify.DJURI {
@@ -133,7 +155,8 @@ func device(st *daemon.ApiStatus) spotify.Device {
 	}
 }
 
-// Devices lists the speaker itself, once it's connected.
+// Devices lists the speaker itself, once it's connected, and the account's
+// other devices.
 func (s *Speaker) Devices(ctx context.Context) ([]spotify.Device, error) {
 	st, err := s.status(ctx)
 	if errors.Is(err, errNotReady) {
@@ -142,12 +165,26 @@ func (s *Speaker) Devices(ctx context.Context) ([]spotify.Device, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []spotify.Device{device(st)}, nil
+	here := device(st)
+	_, _, elsewhere := s.remote(st.DeviceId)
+	here.IsActive = st.Track != nil && !elsewhere
+	return append([]spotify.Device{here}, s.remoteDevices(st.DeviceId)...), nil
 }
 
 // Play starts a context (album, playlist, artist, liked songs) at an
-// optional track, or a single track, or resumes when opts is empty.
+// optional track, or a single track, or resumes when opts is empty. It plays
+// on opts.DeviceID, or else wherever is playing now.
 func (s *Speaker) Play(ctx context.Context, opts spotify.PlayOptions) error {
+	to := opts.DeviceID
+	if to == "" {
+		to = s.target(ctx)
+	}
+	if to != "" && !s.isHere(ctx, to) {
+		return s.remotePlay(ctx, to, opts)
+	}
+	if opts.DeviceID != "" {
+		s.choose("") // asked for here by name
+	}
 	var play daemon.ApiPlay
 	switch {
 	case opts.ContextURI == spotify.DJURI:
@@ -169,46 +206,102 @@ func (s *Speaker) send(ctx context.Context, typ daemon.ApiRequestType, data any)
 	return err
 }
 
+// isHere reports whether id is this speaker.
+func (s *Speaker) isHere(ctx context.Context, id string) bool {
+	st, err := s.status(ctx)
+	return err != nil || st.DeviceId == id
+}
+
+// control runs a control on whichever device is playing: here via the
+// player, elsewhere as the Connect command cmd.
+func (s *Speaker) control(ctx context.Context, typ daemon.ApiRequestType, data any, cmd map[string]any) error {
+	if to := s.target(ctx); to != "" {
+		return s.command(ctx, to, cmd)
+	}
+	return s.send(ctx, typ, data)
+}
+
 func (s *Speaker) Pause(ctx context.Context) error {
-	return s.send(ctx, daemon.ApiRequestTypePause, nil)
+	return s.control(ctx, daemon.ApiRequestTypePause, nil, map[string]any{"endpoint": "pause"})
 }
 
 func (s *Speaker) Next(ctx context.Context) error {
-	return s.send(ctx, daemon.ApiRequestTypeNext, daemon.ApiNext{})
+	return s.control(ctx, daemon.ApiRequestTypeNext, daemon.ApiNext{}, map[string]any{"endpoint": "skip_next"})
 }
 
 func (s *Speaker) Previous(ctx context.Context) error {
-	return s.send(ctx, daemon.ApiRequestTypePrev, nil)
+	return s.control(ctx, daemon.ApiRequestTypePrev, nil, map[string]any{"endpoint": "skip_prev"})
 }
 
 func (s *Speaker) Seek(ctx context.Context, positionMS int) error {
-	return s.send(ctx, daemon.ApiRequestTypeSeek, daemon.ApiSeek{Position: int64(positionMS)})
+	return s.control(ctx, daemon.ApiRequestTypeSeek, daemon.ApiSeek{Position: int64(positionMS)},
+		map[string]any{"endpoint": "seek_to", "value": positionMS})
 }
 
 // SetVolume takes a percentage; the speaker is configured with 100 steps.
 func (s *Speaker) SetVolume(ctx context.Context, percent int) error {
+	if to := s.target(ctx); to != "" {
+		return s.setRemoteVolume(ctx, to, percent)
+	}
 	return s.send(ctx, daemon.ApiRequestTypeSetVolume, daemon.ApiSetVolume{Volume: int32(min(max(percent, 0), 100))})
 }
 
 func (s *Speaker) SetShuffle(ctx context.Context, on bool) error {
-	return s.send(ctx, daemon.ApiRequestTypeSetShufflingContext, on)
+	return s.control(ctx, daemon.ApiRequestTypeSetShufflingContext, on,
+		map[string]any{"endpoint": "set_shuffling_context", "value": on})
 }
 
 func (s *Speaker) SetRepeat(ctx context.Context, mode string) error {
+	if to := s.target(ctx); to != "" {
+		return s.command(ctx, to, map[string]any{"endpoint": "set_options",
+			"repeating_context": mode == spotify.RepeatContext, "repeating_track": mode == spotify.RepeatTrack})
+	}
 	if err := s.send(ctx, daemon.ApiRequestTypeSetRepeatingContext, mode == spotify.RepeatContext); err != nil {
 		return err
 	}
 	return s.send(ctx, daemon.ApiRequestTypeSetRepeatingTrack, mode == spotify.RepeatTrack)
 }
 
-// Transfer resumes playback here; the speaker only knows about itself.
-func (s *Speaker) Transfer(ctx context.Context, _ string, play bool) error {
-	if !play {
+// Transfer moves playback to deviceID: this speaker or another device.
+func (s *Speaker) Transfer(ctx context.Context, deviceID string, play bool) error {
+	st, err := s.status(ctx)
+	if err != nil {
+		return err
+	}
+	from := st.DeviceId
+	if c, _, ok := s.remote(st.DeviceId); ok {
+		from = c.ActiveDeviceId
+	}
+	switch {
+	case from == deviceID || (deviceID == st.DeviceId && st.Track != nil):
+		// Already there.
+		if deviceID == st.DeviceId {
+			s.choose("")
+		}
+		if !play {
+			return nil
+		}
+		if deviceID == st.DeviceId {
+			return s.send(ctx, daemon.ApiRequestTypeResume, nil)
+		}
+		return s.command(ctx, deviceID, map[string]any{"endpoint": "resume"})
+	case from == st.DeviceId && st.Track == nil:
+		// Nothing is playing anywhere to move; the next play goes there.
+		if deviceID == st.DeviceId {
+			s.choose("")
+			if play {
+				return s.send(ctx, daemon.ApiRequestTypeResume, nil)
+			}
+			return nil
+		}
+		s.choose(deviceID)
 		return nil
 	}
-	return s.send(ctx, daemon.ApiRequestTypeResume, nil)
+	s.choose("")
+	return s.transfer(ctx, from, deviceID, play)
 }
 
 func (s *Speaker) AddToQueue(ctx context.Context, uri string) error {
-	return s.send(ctx, daemon.ApiRequestTypeAddToQueue, uri)
+	return s.control(ctx, daemon.ApiRequestTypeAddToQueue, uri, map[string]any{"endpoint": "add_to_queue",
+		"track": map[string]any{"uri": uri, "metadata": map[string]string{"is_queued": "true"}, "provider": "queue"}})
 }

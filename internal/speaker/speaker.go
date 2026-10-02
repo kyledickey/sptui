@@ -1,16 +1,20 @@
 // Package speaker runs a Spotify Connect device inside sptui, so music plays
 // right here on this computer. It wraps go-librespot's daemon: Spotify sees
 // sptui as a speaker, and the UI drives it directly, in process (see
-// player.go), without going through the Web API.
+// player.go), without going through the Web API. It also watches and
+// controls the account's other devices (see cluster.go and remote.go).
 package speaker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/devgianlu/go-librespot/daemon"
@@ -40,6 +44,14 @@ type Speaker struct {
 	err     error // why it stopped; read after done is closed
 	connect connect
 	dj      djResume
+	watcher *observer
+	meta    trackMeta
+	sock    string      // where the speaker takes requests from other sptuis
+	client  atomic.Bool // another sptui runs the speaker; requests go there
+	chosen  struct {    // see choose
+		sync.Mutex
+		id string
+	}
 }
 
 // HasLogin reports whether the speaker has a saved login, so it can start
@@ -50,21 +62,48 @@ func HasLogin(statePath string) bool {
 }
 
 // Start launches the speaker in the background. It runs until ctx is
-// cancelled or Close is called.
+// cancelled or Close is called. If another sptui is already running the
+// speaker, this one controls that instead (see instance.go).
 func Start(ctx context.Context, cfg Config, creds Credentials, log *slog.Logger) (*Speaker, error) {
 	if err := os.MkdirAll(filepath.Dir(cfg.StatePath), 0o700); err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Speaker{cancel: cancel, server: newLocalServer(), done: make(chan struct{})}
+	s := &Speaker{cancel: cancel, server: newLocalServer(), done: make(chan struct{}), watcher: newObserver(), sock: socketPath(cfg.StatePath)}
 	s.dj.path = filepath.Join(filepath.Dir(cfg.StatePath), "dj.json")
-	store := &stateStore{path: cfg.StatePath}
 
-	app, err := newApp(cfg, creds, store, s.server, log)
-	if err != nil {
+	lockPath := cfg.StatePath + ".lock"
+	unlock, err := lock(lockPath)
+	switch {
+	case errors.Is(err, errLocked):
+		log.Info("another sptui is running the speaker; controlling it from here")
+		s.client.Store(true)
+		go s.standBy(ctx, lockPath, cfg, creds, log)
+	case err != nil:
 		cancel()
 		return nil, err
+	default:
+		if err := s.run(ctx, cfg, creds, unlock, log); err != nil {
+			cancel()
+			return nil, err
+		}
 	}
+	go s.watch(ctx, log.With("pkg", "observer"))
+	return s, nil
+}
+
+// run starts the speaker itself. It holds the lock until the speaker stops.
+func (s *Speaker) run(ctx context.Context, cfg Config, creds Credentials, unlock func(), log *slog.Logger) error {
+	store := &stateStore{path: cfg.StatePath}
+	app, err := newApp(cfg, creds, store, s.server, log)
+	if err != nil {
+		unlock()
+		return err
+	}
+	if err := s.serve(ctx, log); err != nil {
+		log.Warn("other sptuis can't share the speaker", "err", err)
+	}
+	s.client.Store(false)
 	log.Info("speaker starting", "name", cfg.Name, "backend", backendOrDefault(cfg.Backend), "bitrate", cfg.Bitrate)
 
 	go func() {
@@ -89,9 +128,45 @@ func Start(ctx context.Context, cfg Config, creds Credentials, log *slog.Logger)
 			log.Error("speaker stopped", "err", err)
 		}
 		s.err = err
+		unlock() // before done, so the next session can run the speaker
 		close(s.done)
 	}()
-	return s, nil
+	return nil
+}
+
+// standBy waits for the sptui running the speaker to quit, then runs it
+// here.
+func (s *Speaker) standBy(ctx context.Context, lockPath string, cfg Config, creds Credentials, log *slog.Logger) {
+	got := make(chan func(), 1)
+	go func() {
+		unlock, err := lockWait(lockPath)
+		if err != nil {
+			log.Error("can't wait for the speaker", "err", err)
+		}
+		got <- unlock
+	}()
+	select {
+	case <-ctx.Done():
+		close(s.done)
+		// Let the lock go straight away if it comes.
+		go func() {
+			if unlock := <-got; unlock != nil {
+				unlock()
+			}
+		}()
+	case unlock := <-got:
+		if unlock == nil {
+			<-ctx.Done()
+			close(s.done)
+			return
+		}
+		log.Info("the sptui running the speaker quit; running it here")
+		if err := s.run(ctx, cfg, creds, unlock, log); err != nil {
+			log.Error("speaker stopped", "err", err)
+			s.err = err
+			close(s.done)
+		}
+	}
 }
 
 // Done is closed when the speaker stops.
