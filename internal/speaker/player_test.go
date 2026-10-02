@@ -11,10 +11,10 @@ import (
 )
 
 // fakeSpeaker answers requests like go-librespot's player loop would, and
-// records what it was asked.
+// records what it was asked, apart from status.
 func fakeSpeaker(t *testing.T, status *daemon.ApiStatus) (*Speaker, *[]daemon.ApiRequest) {
 	t.Helper()
-	s := &Speaker{server: newLocalServer(), done: make(chan struct{})}
+	s := &Speaker{server: newLocalServer(), done: make(chan struct{}), watcher: newObserver()}
 	var got []daemon.ApiRequest
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
@@ -22,12 +22,12 @@ func fakeSpeaker(t *testing.T, status *daemon.ApiStatus) (*Speaker, *[]daemon.Ap
 		for {
 			select {
 			case req := <-s.server.requests:
-				got = append(got, req)
 				if req.Type == daemon.ApiRequestTypeStatus {
 					req.Reply(status, nil)
-				} else {
-					req.Reply(nil, nil)
+					continue
 				}
+				got = append(got, req)
+				req.Reply(nil, nil)
 			case <-stop:
 				return
 			}
@@ -102,7 +102,7 @@ func TestPlayRequests(t *testing.T) {
 func TestNotReadyBeforeLogin(t *testing.T) {
 	handoff = 50 * time.Millisecond
 	// Nobody reads requests until the speaker has logged in.
-	s := &Speaker{server: newLocalServer(), done: make(chan struct{})}
+	s := &Speaker{server: newLocalServer(), done: make(chan struct{}), watcher: newObserver()}
 	if st, err := s.Playback(context.Background()); st != nil || err != nil {
 		t.Fatalf("Playback before login = %+v, %v; want nothing", st, err)
 	}

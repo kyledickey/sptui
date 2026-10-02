@@ -1,11 +1,13 @@
 // Package speaker runs a Spotify Connect device inside sptui, so music plays
 // right here on this computer. It wraps go-librespot's daemon: Spotify sees
 // sptui as a speaker, and the UI drives it directly, in process (see
-// player.go), without going through the Web API.
+// player.go), without going through the Web API. It also watches and
+// controls the account's other devices (see cluster.go and remote.go).
 package speaker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -40,6 +42,9 @@ type Speaker struct {
 	err     error // why it stopped; read after done is closed
 	connect connect
 	dj      djResume
+	watcher *observer
+	meta    trackMeta
+	name    string
 }
 
 // HasLogin reports whether the speaker has a saved login, so it can start
@@ -55,13 +60,24 @@ func Start(ctx context.Context, cfg Config, creds Credentials, log *slog.Logger)
 	if err := os.MkdirAll(filepath.Dir(cfg.StatePath), 0o700); err != nil {
 		return nil, err
 	}
+	slot, path, unlock, err := claim(cfg.StatePath)
+	if err != nil {
+		return nil, err
+	}
+	if err := borrowLogin(cfg.StatePath, path); err != nil {
+		log.Warn("couldn't share the speaker's login with this copy of sptui", "err", err)
+	}
+	if slot > 1 {
+		cfg.Name = fmt.Sprintf("%s %d", cfg.Name, slot)
+	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Speaker{cancel: cancel, server: newLocalServer(), done: make(chan struct{})}
+	s := &Speaker{cancel: cancel, server: newLocalServer(), done: make(chan struct{}), watcher: newObserver(), name: cfg.Name}
 	s.dj.path = filepath.Join(filepath.Dir(cfg.StatePath), "dj.json")
-	store := &stateStore{path: cfg.StatePath}
+	store := &stateStore{path: path}
 
 	app, err := newApp(cfg, creds, store, s.server, log)
 	if err != nil {
+		unlock()
 		cancel()
 		return nil, err
 	}
@@ -89,10 +105,16 @@ func Start(ctx context.Context, cfg Config, creds Credentials, log *slog.Logger)
 			log.Error("speaker stopped", "err", err)
 		}
 		s.err = err
+		unlock() // before done, so the next session gets this slot back
 		close(s.done)
 	}()
+	go s.watch(ctx, log.With("pkg", "observer"))
 	return s, nil
 }
+
+// Name is the speaker's name in Spotify: the configured one, numbered when
+// another sptui already has it.
+func (s *Speaker) Name() string { return s.name }
 
 // Done is closed when the speaker stops.
 func (s *Speaker) Done() <-chan struct{} { return s.done }
@@ -111,11 +133,16 @@ func (s *Speaker) Close() {
 	}
 }
 
-// Forget deletes the speaker's saved login. Its device ID is kept, so
-// Spotify's device list doesn't collect a new "sptui" each time.
+// Forget deletes the speaker's saved login, and other sptuis' copies of it.
+// Device IDs are kept, so Spotify's device list doesn't collect a new
+// "sptui" each time.
 func Forget(statePath string) error {
-	_, err := (&stateStore{path: statePath}).forgetLogin()
-	return err
+	var errs []error
+	for _, path := range append([]string{statePath}, slots(statePath)...) {
+		_, err := (&stateStore{path: path}).forgetLogin()
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
 }
 
 func newApp(cfg Config, creds Credentials, store *stateStore, server *localServer, log *slog.Logger) (*daemon.App, error) {
