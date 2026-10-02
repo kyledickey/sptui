@@ -151,7 +151,11 @@ The UI drives the speaker in process, not through the Web API. To see and
 control the account's other devices (a phone, the desktop app, another
 sptui), the speaker also registers a hidden Connect device that Spotify
 pushes the account's playback state to, and sends other devices Connect
-commands. Each sptui running at once gets its own speaker ("sptui 2", …).
+commands.
+
+A computer has one speaker however many sptuis are open: the first runs it,
+and the others control it over a socket beside its state file
+(`speaker.sock`). If that one quits, another takes the speaker over.
 
 go-librespot is GPL-3.0, so builds of sptui that include it are too.
 

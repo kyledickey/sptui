@@ -40,6 +40,14 @@ func (s *localServer) Close() error                      { return nil }
 
 // request sends one request to the player and waits for its reply.
 func (s *Speaker) request(ctx context.Context, typ daemon.ApiRequestType, data any) (any, error) {
+	if s.client.Load() {
+		return s.forward(ctx, typ, data)
+	}
+	return s.local(ctx, typ, data)
+}
+
+// local sends a request to the player running in this process.
+func (s *Speaker) local(ctx context.Context, typ daemon.ApiRequestType, data any) (any, error) {
 	req, wait := daemon.NewApiRequest(typ, data)
 	select {
 	case s.server.requests <- req:
@@ -159,7 +167,7 @@ func (s *Speaker) Devices(ctx context.Context) ([]spotify.Device, error) {
 	}
 	here := device(st)
 	_, _, elsewhere := s.remote(st.DeviceId)
-	here.IsActive = !elsewhere
+	here.IsActive = st.Track != nil && !elsewhere
 	return append([]spotify.Device{here}, s.remoteDevices(st.DeviceId)...), nil
 }
 

@@ -13,8 +13,10 @@ import (
 )
 
 // TestProbeRemote runs two real, muted speakers with the saved login: A
-// plays, and B, through its observer, must see and control it. Manual
-// only, as it plays on the account: SPTUI_PROBE=1.
+// plays, and B, through its observer, must see and control it. C is a
+// second sptui on A's computer: it must control A's speaker as its own,
+// and take it over when A quits. Manual only, as it plays on the account:
+// SPTUI_PROBE=1.
 func TestProbeRemote(t *testing.T) {
 	if os.Getenv("SPTUI_PROBE") == "" {
 		t.Skip("set SPTUI_PROBE=1")
@@ -23,12 +25,13 @@ func TestProbeRemote(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	// Both share one state file, as two copies of sptui do.
-	path := probeState(t)
-	a := probeSpeaker(t, ctx, path, log)
-	b := probeSpeaker(t, ctx, path, log)
-	if a.Name() != "sptui-probe" || b.Name() != "sptui-probe 2" {
-		t.Fatalf("names = %q, %q", a.Name(), b.Name())
+	pathA := probeState(t)
+	a := probeSpeaker(t, ctx, pathA, "sptui-probe-a", log)
+	b := probeSpeaker(t, ctx, probeState(t), "sptui-probe-b", log)
+	c := probeSpeaker(t, ctx, pathA, "sptui-probe-a", log)
+	defer c.Close()
+	if !c.client.Load() {
+		t.Fatal("C runs its own speaker; want it to share A's")
 	}
 	defer a.Close()
 	defer b.Close()
@@ -52,13 +55,26 @@ func TestProbeRemote(t *testing.T) {
 	var st *spotify.PlaybackState
 	waitFor(t, "B sees A playing", func() bool {
 		st, _ = b.Playback(ctx)
-		return st != nil && st.Device.Name == a.Name() && st.IsPlaying
+		return st != nil && st.Device.Name == "sptui-probe-a" && st.IsPlaying
 	})
 	t.Logf("B sees: %q by %q on %q, %dms of %dms, cover %q", st.Item.Name, st.Item.ArtistNames(),
 		st.Device.Name, st.ProgressMS, st.Item.DurationMS, spotify.CoverURL(st.Item.Album.Images, 300))
 	if st.Item.ArtistNames() == "" {
 		t.Error("no artists")
 	}
+
+	waitFor(t, "C sees A's speaker as its own", func() bool {
+		stC, _ := c.Playback(ctx)
+		return stC != nil && stC.Device.ID == stA.DeviceId && stC.Item.Name == st.Item.Name
+	})
+	if err := c.Pause(ctx); err != nil {
+		t.Fatal("C pause:", err)
+	}
+	waitFor(t, "C paused A", func() bool { st, _ := a.status(ctx); return st.Paused })
+	if err := c.Play(ctx, spotify.PlayOptions{}); err != nil {
+		t.Fatal("C resume:", err)
+	}
+	waitFor(t, "C resumed A", func() bool { st, _ := a.status(ctx); return !st.Paused })
 
 	devices, _ := b.Devices(ctx)
 	out, _ := json.Marshal(devices)
@@ -92,9 +108,15 @@ func TestProbeRemote(t *testing.T) {
 	waitFor(t, "B playing after transfer", func() bool { st, _ := b.status(ctx); return playingHere(st) })
 	waitFor(t, "A sees B", func() bool {
 		st, _ := a.Playback(ctx)
-		return st != nil && st.Device.Name == b.Name()
+		return st != nil && st.Device.Name == "sptui-probe-b"
 	})
 	t.Log("transfer ok")
+
+	a.Close()
+	waitFor(t, "C took over A's speaker", func() bool {
+		st, err := c.status(ctx)
+		return !c.client.Load() && err == nil && st.DeviceId == stA.DeviceId
+	})
 	if hold, _ := time.ParseDuration(os.Getenv("SPTUI_PROBE_HOLD")); hold > 0 {
 		time.Sleep(hold) // keep playing, to look at from a real sptui
 	}
@@ -113,15 +135,15 @@ func probeState(t *testing.T) string {
 	delete(state, "device_id") // a fresh device, so a running sptui isn't disturbed
 	state["last_volume"] = 0
 	data, _ := json.Marshal(state)
-	path := filepath.Join(t.TempDir(), "speaker.json")
+	path := filepath.Join(shortDir(t), "speaker.json")
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return path
 }
 
-func probeSpeaker(t *testing.T, ctx context.Context, path string, log *slog.Logger) *Speaker {
-	s, err := Start(ctx, Config{Name: "sptui-probe", Bitrate: 96, StatePath: path}, Credentials{}, log)
+func probeSpeaker(t *testing.T, ctx context.Context, path, name string, log *slog.Logger) *Speaker {
+	s, err := Start(ctx, Config{Name: name, Bitrate: 96, StatePath: path}, Credentials{}, log.With("speaker", name))
 	if err != nil {
 		t.Fatal(err)
 	}

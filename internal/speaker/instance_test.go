@@ -1,49 +1,101 @@
 package speaker
 
 import (
+	"context"
+	"log/slog"
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
-	librespot "github.com/devgianlu/go-librespot"
+	"github.com/devgianlu/go-librespot/daemon"
+
+	"github.com/kyledickey/sptui/internal/spotify"
 )
 
-func TestClaimSlots(t *testing.T) {
-	statePath := filepath.Join(t.TempDir(), "speaker.json")
-	first := &stateStore{path: statePath}
-	state := &librespot.AppState{DeviceId: "first"}
-	state.Credentials.Username, state.Credentials.Data = "me", []byte("login")
-	if err := first.Save(state); err != nil {
+// shortDir is a temporary directory with a path short enough for a socket.
+func shortDir(t *testing.T) string {
+	dir, err := os.MkdirTemp("", "sptui")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
+func TestClientControlsSharedSpeaker(t *testing.T) {
+	primary, got := fakeSpeaker(t, &daemon.ApiStatus{
+		DeviceId: "dev", DeviceName: "sptui", Volume: 30, VolumeSteps: 100,
+		Track: &daemon.ApiTrack{Name: "Song", Uri: "spotify:track:1", ArtistNames: []string{"A"}},
+	})
+	primary.sock = filepath.Join(shortDir(t), "speaker.sock")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := primary.serve(ctx, slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}
 
-	n1, p1, unlock1, err := claim(statePath)
-	if err != nil || n1 != 1 || p1 != statePath {
-		t.Fatalf("first claim = %d %s %v", n1, p1, err)
+	client := &Speaker{server: newLocalServer(), done: make(chan struct{}), watcher: newObserver(), sock: primary.sock}
+	client.client.Store(true)
+	st, err := client.Playback(ctx)
+	if err != nil || st == nil || st.Item.Name != "Song" || st.Device.Name != "sptui" || *st.Device.VolumePercent != 30 {
+		t.Fatalf("Playback through the socket = %+v, %v", st, err)
 	}
-	n2, p2, unlock2, err := claim(statePath)
-	if err != nil || n2 != 2 || filepath.Base(p2) != "speaker-2.json" {
-		t.Fatalf("second claim = %d %s %v", n2, p2, err)
-	}
-	if err := borrowLogin(statePath, p2); err != nil {
+	if err := client.Play(ctx, spotify.PlayOptions{ContextURI: "spotify:album:1", OffsetURI: "spotify:track:2"}); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := (&stateStore{path: p2}).Load()
-	if string(got.Credentials.Data) != "login" || got.DeviceId == "first" {
-		t.Fatalf("second slot state = %+v", got)
-	}
-
-	unlock1()
-	if n, _, unlock, _ := claim(statePath); n != 1 {
-		t.Fatalf("freed slot 1 not reused: got %d", n)
-	} else {
-		unlock()
-	}
-	unlock2()
-
-	if err := Forget(statePath); err != nil {
+	if err := client.SetShuffle(ctx, true); err != nil {
 		t.Fatal(err)
 	}
-	if HasLogin(statePath) || HasLogin(p2) {
-		t.Fatal("Forget left a login behind")
+	time.Sleep(50 * time.Millisecond)
+	if len(*got) != 2 {
+		t.Fatalf("speaker got %d requests, want 2", len(*got))
+	}
+	if p := (*got)[0].Data.(daemon.ApiPlay); p.Uri != "spotify:album:1" || p.SkipToUri != "spotify:track:2" {
+		t.Errorf("play = %+v", p)
+	}
+	if (*got)[1].Type != daemon.ApiRequestTypeSetShufflingContext || (*got)[1].Data != true {
+		t.Errorf("shuffle = %+v", (*got)[1])
+	}
+}
+
+func TestClientWithoutSpeaker(t *testing.T) {
+	// The sptui running the speaker has just quit.
+	s := &Speaker{server: newLocalServer(), done: make(chan struct{}), watcher: newObserver(),
+		sock: filepath.Join(shortDir(t), "speaker.sock")}
+	s.client.Store(true)
+	if st, err := s.Playback(context.Background()); st != nil || err != nil {
+		t.Fatalf("Playback = %+v, %v; want nothing", st, err)
+	}
+	if err := s.Pause(context.Background()); err != errNotReady {
+		t.Fatalf("Pause = %v, want not ready", err)
+	}
+}
+
+func TestOneSpeakerPerComputer(t *testing.T) {
+	path := filepath.Join(shortDir(t), "speaker.json.lock")
+	unlock, err := lock(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lock(path); err != errLocked {
+		t.Fatalf("second lock = %v, want errLocked", err)
+	}
+	waited := make(chan func())
+	go func() {
+		u, _ := lockWait(path)
+		waited <- u
+	}()
+	select {
+	case <-waited:
+		t.Fatal("lockWait didn't wait")
+	case <-time.After(50 * time.Millisecond):
+	}
+	unlock()
+	select {
+	case u := <-waited:
+		u()
+	case <-time.After(time.Second):
+		t.Fatal("lockWait didn't get the freed lock")
 	}
 }

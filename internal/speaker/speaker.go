@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"time"
 
 	"github.com/devgianlu/go-librespot/daemon"
@@ -44,7 +45,8 @@ type Speaker struct {
 	dj      djResume
 	watcher *observer
 	meta    trackMeta
-	name    string
+	sock    string      // where the speaker takes requests from other sptuis
+	client  atomic.Bool // another sptui runs the speaker; requests go there
 }
 
 // HasLogin reports whether the speaker has a saved login, so it can start
@@ -55,32 +57,48 @@ func HasLogin(statePath string) bool {
 }
 
 // Start launches the speaker in the background. It runs until ctx is
-// cancelled or Close is called.
+// cancelled or Close is called. If another sptui is already running the
+// speaker, this one controls that instead (see instance.go).
 func Start(ctx context.Context, cfg Config, creds Credentials, log *slog.Logger) (*Speaker, error) {
 	if err := os.MkdirAll(filepath.Dir(cfg.StatePath), 0o700); err != nil {
 		return nil, err
 	}
-	slot, path, unlock, err := claim(cfg.StatePath)
-	if err != nil {
-		return nil, err
-	}
-	if err := borrowLogin(cfg.StatePath, path); err != nil {
-		log.Warn("couldn't share the speaker's login with this copy of sptui", "err", err)
-	}
-	if slot > 1 {
-		cfg.Name = fmt.Sprintf("%s %d", cfg.Name, slot)
-	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Speaker{cancel: cancel, server: newLocalServer(), done: make(chan struct{}), watcher: newObserver(), name: cfg.Name}
+	s := &Speaker{cancel: cancel, server: newLocalServer(), done: make(chan struct{}), watcher: newObserver(), sock: socketPath(cfg.StatePath)}
 	s.dj.path = filepath.Join(filepath.Dir(cfg.StatePath), "dj.json")
-	store := &stateStore{path: path}
 
+	lockPath := cfg.StatePath + ".lock"
+	unlock, err := lock(lockPath)
+	switch {
+	case errors.Is(err, errLocked):
+		log.Info("another sptui is running the speaker; controlling it from here")
+		s.client.Store(true)
+		go s.standBy(ctx, lockPath, cfg, creds, log)
+	case err != nil:
+		cancel()
+		return nil, err
+	default:
+		if err := s.run(ctx, cfg, creds, unlock, log); err != nil {
+			cancel()
+			return nil, err
+		}
+	}
+	go s.watch(ctx, log.With("pkg", "observer"))
+	return s, nil
+}
+
+// run starts the speaker itself. It holds the lock until the speaker stops.
+func (s *Speaker) run(ctx context.Context, cfg Config, creds Credentials, unlock func(), log *slog.Logger) error {
+	store := &stateStore{path: cfg.StatePath}
 	app, err := newApp(cfg, creds, store, s.server, log)
 	if err != nil {
 		unlock()
-		cancel()
-		return nil, err
+		return err
 	}
+	if err := s.serve(ctx, log); err != nil {
+		log.Warn("other sptuis can't share the speaker", "err", err)
+	}
+	s.client.Store(false)
 	log.Info("speaker starting", "name", cfg.Name, "backend", backendOrDefault(cfg.Backend), "bitrate", cfg.Bitrate)
 
 	go func() {
@@ -105,16 +123,46 @@ func Start(ctx context.Context, cfg Config, creds Credentials, log *slog.Logger)
 			log.Error("speaker stopped", "err", err)
 		}
 		s.err = err
-		unlock() // before done, so the next session gets this slot back
+		unlock() // before done, so the next session can run the speaker
 		close(s.done)
 	}()
-	go s.watch(ctx, log.With("pkg", "observer"))
-	return s, nil
+	return nil
 }
 
-// Name is the speaker's name in Spotify: the configured one, numbered when
-// another sptui already has it.
-func (s *Speaker) Name() string { return s.name }
+// standBy waits for the sptui running the speaker to quit, then runs it
+// here.
+func (s *Speaker) standBy(ctx context.Context, lockPath string, cfg Config, creds Credentials, log *slog.Logger) {
+	got := make(chan func(), 1)
+	go func() {
+		unlock, err := lockWait(lockPath)
+		if err != nil {
+			log.Error("can't wait for the speaker", "err", err)
+		}
+		got <- unlock
+	}()
+	select {
+	case <-ctx.Done():
+		close(s.done)
+		// Let the lock go straight away if it comes.
+		go func() {
+			if unlock := <-got; unlock != nil {
+				unlock()
+			}
+		}()
+	case unlock := <-got:
+		if unlock == nil {
+			<-ctx.Done()
+			close(s.done)
+			return
+		}
+		log.Info("the sptui running the speaker quit; running it here")
+		if err := s.run(ctx, cfg, creds, unlock, log); err != nil {
+			log.Error("speaker stopped", "err", err)
+			s.err = err
+			close(s.done)
+		}
+	}
+}
 
 // Done is closed when the speaker stops.
 func (s *Speaker) Done() <-chan struct{} { return s.done }
@@ -133,16 +181,11 @@ func (s *Speaker) Close() {
 	}
 }
 
-// Forget deletes the speaker's saved login, and other sptuis' copies of it.
-// Device IDs are kept, so Spotify's device list doesn't collect a new
-// "sptui" each time.
+// Forget deletes the speaker's saved login. Its device ID is kept, so
+// Spotify's device list doesn't collect a new "sptui" each time.
 func Forget(statePath string) error {
-	var errs []error
-	for _, path := range append([]string{statePath}, slots(statePath)...) {
-		_, err := (&stateStore{path: path}).forgetLogin()
-		errs = append(errs, err)
-	}
-	return errors.Join(errs...)
+	_, err := (&stateStore{path: statePath}).forgetLogin()
+	return err
 }
 
 func newApp(cfg Config, creds Credentials, store *stateStore, server *localServer, log *slog.Logger) (*daemon.App, error) {

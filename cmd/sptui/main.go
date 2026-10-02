@@ -288,7 +288,7 @@ func (a *app) session(ctx context.Context) (tui.Outcome, error) {
 			// Play through the speaker directly: instant, and immune to Web
 			// API rate limits. The Web API is only for browsing.
 			player = spk
-			opts.LocalDevice = spk.Name()
+			opts.LocalDevice = a.cfg.Player.Name
 			opts.PollInterval = time.Second
 		}
 		backend = struct {
