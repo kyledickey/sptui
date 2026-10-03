@@ -27,7 +27,15 @@ func (s *stateStore) Load() (*librespot.AppState, error) {
 	if err != nil {
 		return nil, err
 	}
-	return state, json.Unmarshal(data, state)
+	if err := json.Unmarshal(data, state); err != nil {
+		return nil, err
+	}
+	// Every sptui used to get this ID (see ids.go). Drop it, keeping the
+	// login, and go-librespot makes and saves a new one.
+	if state.DeviceId == sharedDeviceID {
+		state.DeviceId = ""
+	}
+	return state, nil
 }
 
 func (s *stateStore) Save(state *librespot.AppState) error {

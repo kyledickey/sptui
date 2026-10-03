@@ -151,6 +151,7 @@ func (s *Speaker) observe(ctx context.Context, log *slog.Logger) error {
 				continue
 			}
 			s.watcher.set(update.Cluster)
+			log.Debug("cluster update", "active", update.Cluster.GetActiveDeviceId(), "devices", clusterDevices(update.Cluster))
 		default:
 			// A new connection: (re-)register, which also returns the
 			// cluster as it stands.
@@ -166,9 +167,19 @@ func (s *Speaker) observe(ctx context.Context, log *slog.Logger) error {
 			s.watcher.sp = sp
 			s.watcher.mu.Unlock()
 			s.watcher.set(cluster)
-			log.Debug("observer registered", "devices", len(cluster.GetDevice()), "active", cluster.GetActiveDeviceId())
+			log.Debug("observer registered", "id", s.watcher.id, "active", cluster.GetActiveDeviceId(), "devices", clusterDevices(cluster))
 		}
 	}
+}
+
+// clusterDevices describes a cluster's devices for the log, like
+// "sptui (67d10549, hidden=false)".
+func clusterDevices(c *connectpb.Cluster) []string {
+	var out []string
+	for id, d := range c.GetDevice() {
+		out = append(out, fmt.Sprintf("%s (%.8s, hidden=%t)", d.GetName(), id, d.GetCapabilities().GetHidden()))
+	}
+	return out
 }
 
 // registration announces the observer: hidden, so it doesn't show in

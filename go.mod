@@ -12,6 +12,7 @@ require (
 	github.com/devgianlu/go-librespot v0.10.2
 	github.com/godbus/dbus/v5 v5.2.0
 	github.com/sirupsen/logrus v1.9.3
+	golang.org/x/exp v0.0.0-20251209150349-8475f28825e9
 	golang.org/x/image v0.46.0
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sys v0.48.0
@@ -49,7 +50,6 @@ require (
 	github.com/xlab/vorbis-go v0.0.0-20210911202351-b5b85f1ec645 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/crypto v0.52.0 // indirect
-	golang.org/x/exp v0.0.0-20251209150349-8475f28825e9 // indirect
 	golang.org/x/mod v0.31.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
