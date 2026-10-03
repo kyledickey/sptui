@@ -118,6 +118,10 @@ func (u *Updater) latest(ctx context.Context, fresh bool) (string, error) {
 	return tag, nil
 }
 
+// Latest asks GitHub for the newest release's tag, every time: nothing is
+// cached, and it doesn't matter what's running.
+func (u *Updater) Latest(ctx context.Context) (string, error) { return u.fetchLatest(ctx) }
+
 // fetchLatest asks GitHub for the newest release. Rather than the API,
 // which allows 60 requests an hour, it reads where /releases/latest
 // redirects to: .../releases/tag/v1.2.3.

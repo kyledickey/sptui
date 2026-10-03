@@ -75,6 +75,21 @@ a:hover {
   text-decoration: none;
 }
 
+/* The latest release, beside the name; filled in by the server, and gone
+   until it knows. */
+.version {
+  margin-left: -6px;
+  color: var(--muted);
+}
+
+.version:hover {
+  color: var(--text);
+}
+
+.version:empty {
+  display: none;
+}
+
 /* One cell per bar, like the app's ▁▂▃▄▅▆▇█. */
 .spectrum {
   display: flex;

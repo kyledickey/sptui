@@ -3,11 +3,15 @@
 package web
 
 import (
+	"bytes"
 	"embed"
 	"io/fs"
 	"net/http"
 	"path"
 	"strings"
+	"time"
+
+	"github.com/kyledickey/sptui/internal/update"
 )
 
 //go:embed site
@@ -20,8 +24,13 @@ var Site, _ = fs.Sub(embedded, "site")
 // intros). Pages are addressed without their .html, so
 // site/about.html is /about, site/docs/index.html is /docs and
 // site/index.html is /; other files, like
-// style.css, are served as is. Anything else gets site/404.html.
+// style.css, are served as is. Anything else gets site/404.html. A page
+// gets the latest release's tag where it says <!--latest-->.
 func Handler(site fs.FS) http.Handler {
+	return handler(site, &latest{fetch: (&update.Updater{}).Latest})
+}
+
+func handler(site fs.FS, rel *latest) http.Handler {
 	files := http.FileServerFS(site)
 	mux := http.NewServeMux()
 	var anims intros
@@ -31,6 +40,7 @@ func Handler(site fs.FS) http.Handler {
 	mux.HandleFunc("GET /screens/{file}", shots.serve)
 	go anims.load() // draw them now, not on the first visit
 	go shots.load()
+	rel.get() // look it up now, not on the first visit
 	mux.HandleFunc("GET /{path...}", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("path")
 		switch {
@@ -59,9 +69,21 @@ func Handler(site fs.FS) http.Handler {
 			notFound(w, site)
 			return
 		}
-		http.ServeFileFS(w, r, site, name)
+		servePage(w, r, site, name, rel)
 	})
 	return mux
+}
+
+// servePage serves an HTML page, with the latest release filled in.
+func servePage(w http.ResponseWriter, r *http.Request, site fs.FS, name string, rel *latest) {
+	page, err := fs.ReadFile(site, name)
+	if err != nil {
+		http.Error(w, "couldn't read the page", http.StatusInternalServerError)
+		return
+	}
+	// No modification time: the page changes with each release, not just
+	// with its file.
+	http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(rel.fill(page)))
 }
 
 func isFile(site fs.FS, name string) bool {

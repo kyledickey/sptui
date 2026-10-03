@@ -1,13 +1,60 @@
 package web
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 )
+
+// offline is a latest that never finds out.
+func offline() *latest {
+	return &latest{fetch: func(context.Context) (string, error) { return "", errors.New("offline") }}
+}
+
+func TestLatest(t *testing.T) {
+	asked := make(chan struct{}, 10)
+	rel := &latest{fetch: func(context.Context) (string, error) {
+		asked <- struct{}{}
+		return "v1.2.3", nil
+	}}
+	h := handler(fstest.MapFS{
+		"index.html": {Data: []byte(`<a class="version"><!--latest--></a>`)},
+	}, rel)
+	<-asked // the handler looks it up as soon as it's made
+
+	get := func() string {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+		return rec.Body.String()
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for get() != `<a class="version">v1.2.3</a>` {
+		if time.Now().After(deadline) {
+			t.Fatalf("page = %q, want the version in it", get())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	select {
+	case <-asked:
+		t.Error("asked GitHub again within latestEvery")
+	default:
+	}
+}
+
+func TestLatestUnknown(t *testing.T) {
+	h := handler(fstest.MapFS{"index.html": {Data: []byte(`<a><!--latest--></a>`)}}, offline())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+	if got := rec.Body.String(); got != `<a><!--latest--></a>` {
+		t.Errorf("page = %q, want the marker left alone", got)
+	}
+}
 
 func TestHandler(t *testing.T) {
 	site := fstest.MapFS{
@@ -19,7 +66,7 @@ func TestHandler(t *testing.T) {
 		"install.ps1":     {Data: []byte("& {}")},
 		"404.html":        {Data: []byte("lost")},
 	}
-	h := Handler(site)
+	h := handler(site, offline())
 	for _, tt := range []struct {
 		path, body, location string
 		status               int
@@ -66,7 +113,7 @@ func TestHandler(t *testing.T) {
 }
 
 func TestData(t *testing.T) {
-	h := Handler(fstest.MapFS{})
+	h := handler(fstest.MapFS{}, offline())
 	for _, tt := range []struct {
 		path   string
 		status int
