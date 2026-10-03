@@ -3,9 +3,9 @@ name: install
 on:
     push:
         branches: [main]
-        paths: [internal/web/site/install.sh, .github/workflows/install.yml]
+        paths: [internal/web/site/install.sh, internal/web/site/install.ps1, .github/workflows/install.yml]
     pull_request:
-        paths: [internal/web/site/install.sh, .github/workflows/install.yml]
+        paths: [internal/web/site/install.sh, internal/web/site/install.ps1, .github/workflows/install.yml]
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
@@ -15,7 +15,7 @@ jobs:
     build:
         uses: ./.github/workflows/build.yml
         with:
-            targets: '["linux_amd64", "linux_arm64"]'
+            targets: '["linux_amd64", "linux_arm64", "windows_amd64"]'
 
     linux:
         name: ${{ matrix.name }}
@@ -82,3 +82,44 @@ jobs:
               env:
                   SPTUI_ARCHIVE: sptui_darwin_arm64.tar.gz
             - run: '"$HOME/.local/bin/sptui" -version'
+
+    windows:
+        name: windows, ${{ matrix.shell }}
+        needs: build
+        strategy:
+            fail-fast: false
+            matrix:
+                shell: [pwsh, powershell] # PowerShell 7, and Windows PowerShell 5.1
+        runs-on: windows-latest
+        defaults:
+            run:
+                shell: ${{ matrix.shell }}
+        steps:
+            - uses: actions/checkout@v5
+            - uses: actions/download-artifact@v4
+              with:
+                  name: sptui_windows_amd64
+                  path: dist
+            - name: Install
+              run: ./internal/web/site/install.ps1
+              env:
+                  SPTUI_ARCHIVE: dist/sptui_windows_amd64.zip
+            - name: Install again, over the first
+              run: ./internal/web/site/install.ps1
+              env:
+                  SPTUI_ARCHIVE: dist/sptui_windows_amd64.zip
+            - name: Runs from PATH, in a new shell
+              run: |
+                  $env:Path = [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + [Environment]::GetEnvironmentVariable('Path', 'Machine')
+                  sptui -version
+                  if ($LASTEXITCODE -ne 0) { exit 1 }
+            - name: Piped into iex, the way the site says
+              run: Get-Content -Raw ./internal/web/site/install.ps1 | Invoke-Expression
+              env:
+                  SPTUI_ARCHIVE: dist/sptui_windows_amd64.zip
+            - name: Fails when it should
+              run: |
+                  $env:SPTUI_ARCHIVE = 'nope.zip'
+                  ./internal/web/site/install.ps1
+                  if ($LASTEXITCODE -ne 1) { Write-Error "exit code $LASTEXITCODE, want 1"; exit 1 }
+                  exit 0

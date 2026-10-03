@@ -11,7 +11,7 @@ on:
             targets:
                 description: JSON list of the targets to build
                 type: string
-                default: '["linux_amd64", "linux_arm64", "darwin_arm64", "darwin_amd64"]'
+                default: '["linux_amd64", "linux_arm64", "darwin_arm64", "darwin_amd64", "windows_amd64"]'
 
 jobs:
     build:
@@ -25,7 +25,8 @@ jobs:
               "linux_amd64": "ubuntu-latest",
               "linux_arm64": "ubuntu-24.04-arm",
               "darwin_arm64": "macos-latest",
-              "darwin_amd64": "macos-15-intel"
+              "darwin_amd64": "macos-15-intel",
+              "windows_amd64": "windows-latest"
             }')[matrix.target] }}
         container: ${{ startsWith(matrix.target, 'linux') && 'debian:bookworm' || '' }}
         steps:
@@ -38,13 +39,27 @@ jobs:
             - name: Build tools (macOS)
               if: runner.os == 'macOS'
               run: brew install --quiet libogg libvorbis flac mpg123 pkgconf
+            - name: Build tools (Windows)
+              if: runner.os == 'Windows'
+              uses: msys2/setup-msys2@v2
+              with:
+                  msystem: UCRT64
+                  path-type: inherit # so it finds setup-go's Go
+                  install: >-
+                      zip mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-pkgconf
+                      mingw-w64-ucrt-x86_64-libogg mingw-w64-ucrt-x86_64-libvorbis
+                      mingw-w64-ucrt-x86_64-flac mingw-w64-ucrt-x86_64-mpg123
             - uses: actions/checkout@v5
             - uses: actions/setup-go@v6
               with:
                   go-version-file: go.mod
-            - run: .github/scripts/build.sh "${{ inputs.version }}"
+            - if: runner.os != 'Windows'
+              run: .github/scripts/build.sh "${{ inputs.version }}"
+            - if: runner.os == 'Windows'
+              shell: msys2 {0}
+              run: .github/scripts/build.sh "${{ inputs.version }}"
             - uses: actions/upload-artifact@v4
               with:
                   name: sptui_${{ matrix.target }}
-                  path: dist/sptui_${{ matrix.target }}.tar.gz
+                  path: dist/sptui_${{ matrix.target }}.*
                   if-no-files-found: error

@@ -165,7 +165,8 @@ detect_platform() {
 			esac
 		fi
 		;;
-	*) die "sptui runs on macOS and Linux" ;;
+	MINGW* | MSYS* | CYGWIN*) die "On Windows, install sptui from PowerShell:" "irm https://sptui.sh/install.ps1 | iex" ;;
+	*) die "sptui runs on macOS, Linux and Windows" ;;
 	esac
 }
 

@@ -178,7 +178,7 @@ h1 {
   position: static;
 }
 
-.bar + pre {
+.bar ~ pre {
   padding-top: 12px;
 }
 

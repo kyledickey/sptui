@@ -53,8 +53,15 @@
       <div class="panel focused install">
         <div class="panel-title">install</div>
         <section>
-          <button class="copy">copy</button>
-          <pre><code>curl -fsSL https://sptui.sh/install.sh | bash</code></pre>
+          <div class="bar">
+            <div class="tabs" role="tablist" aria-label="System">
+              <button role="tab" data-os="macos arch debian">macOS / Linux</button>
+              <button role="tab" data-os="windows">Windows</button>
+            </div>
+            <button class="copy">copy</button>
+          </div>
+          <pre data-os="macos arch debian"><code>curl -fsSL https://sptui.sh/install.sh | bash</code></pre>
+          <pre data-os="windows" hidden><code>irm https://sptui.sh/install.ps1 | iex</code></pre>
         </section>
         <p class="or">or build it yourself, with Go</p>
         <section>
@@ -63,6 +70,7 @@
               <button role="tab" data-os="macos">macOS</button>
               <button role="tab" data-os="arch">Arch</button>
               <button role="tab" data-os="debian">Debian / Ubuntu</button>
+              <button role="tab" data-os="windows">Windows</button>
             </div>
             <button class="copy">copy</button>
           </div>
@@ -71,6 +79,9 @@ go install github.com/kyledickey/sptui/cmd/sptui@latest</code></pre>
           <pre data-os="arch" hidden><code>sudo pacman -S libogg libvorbis flac mpg123 alsa-lib
 go install github.com/kyledickey/sptui/cmd/sptui@latest</code></pre>
           <pre data-os="debian" hidden><code>sudo apt install libogg-dev libvorbis-dev libflac-dev libmpg123-dev libasound2-dev
+go install github.com/kyledickey/sptui/cmd/sptui@latest</code></pre>
+          <pre data-os="windows" hidden><code># in MSYS2's UCRT64 shell
+pacman -S mingw-w64-ucrt-x86_64-{go,gcc,pkgconf,libogg,libvorbis,flac,mpg123}
 go install github.com/kyledickey/sptui/cmd/sptui@latest</code></pre>
         </section>
       </div>

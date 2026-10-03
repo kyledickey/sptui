@@ -8,11 +8,18 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/kyledickey/sptui/internal/update"
 )
 
-const installCommand = "curl -fsSL https://sptui.sh/install.sh | bash"
+// installCommand installs the latest release, on this system.
+func installCommand() string {
+	if runtime.GOOS == "windows" {
+		return "irm https://sptui.sh/install.ps1 | iex"
+	}
+	return "curl -fsSL https://sptui.sh/install.sh | bash"
+}
 
 // newUpdater returns the updater for this build, or nil for a development
 // build, which isn't a release to update from.
@@ -25,6 +32,7 @@ func newUpdater(cacheDir string, log *slog.Logger) *update.Updater {
 		log.Warn("can't find sptui's binary; no updates", "err", err)
 		return nil
 	}
+	update.Cleanup(exe)
 	return &update.Updater{
 		Current:   version,
 		Exe:       exe,
@@ -48,7 +56,7 @@ func runUpdate(ctx context.Context, args []string, cacheDir string, log *slog.Lo
 	u := newUpdater(cacheDir, log)
 	if u == nil {
 		return fmt.Errorf("this is a development build (%s), which doesn't update itself; "+
-			"rebuild it, or install a release with: %s", version, installCommand)
+			"rebuild it, or install a release with: %s", version, installCommand())
 	}
 	latest, err := u.Available(ctx, true)
 	if err != nil {
@@ -65,7 +73,10 @@ func runUpdate(ctx context.Context, args []string, cacheDir string, log *slog.Lo
 	fmt.Printf("Updating sptui %s → %s…\n", version, latest)
 	if err := u.Install(ctx, latest); err != nil {
 		if errors.Is(err, update.ErrNotWritable) {
-			return fmt.Errorf("%w\nRun it as root (sudo sptui update), or reinstall with: %s", err, installCommand)
+			if runtime.GOOS == "windows" {
+				return fmt.Errorf("%w\nRun it as administrator, or reinstall with: %s", err, installCommand())
+			}
+			return fmt.Errorf("%w\nRun it as root (sudo sptui update), or reinstall with: %s", err, installCommand())
 		}
 		return err
 	}

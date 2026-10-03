@@ -16,6 +16,7 @@ func TestHandler(t *testing.T) {
 		"docs/index.html": {Data: []byte("docs")},
 		"style.css":       {Data: []byte("body{}")},
 		"install.sh":      {Data: []byte("#!/bin/sh")},
+		"install.ps1":     {Data: []byte("& {}")},
 		"404.html":        {Data: []byte("lost")},
 	}
 	h := Handler(site)
@@ -49,13 +50,15 @@ func TestHandler(t *testing.T) {
 		}
 	}
 
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("GET", "/install.sh", nil))
-	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/plain") {
-		t.Errorf("/install.sh: Content-Type %q, want text/plain", got)
+	for _, script := range []string{"/install.sh", "/install.ps1"} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", script, nil))
+		if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/plain") {
+			t.Errorf("%s: Content-Type %q, want text/plain", script, got)
+		}
 	}
 
-	rec = httptest.NewRecorder()
+	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("POST", "/", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST /: status %d, want 405", rec.Code)
@@ -96,7 +99,7 @@ func TestData(t *testing.T) {
 }
 
 func TestEmbeddedSite(t *testing.T) {
-	for _, name := range []string{"index.html", "404.html", "style.css", "screen.js", "install.js", "install.sh"} {
+	for _, name := range []string{"index.html", "404.html", "style.css", "screen.js", "install.js", "install.sh", "install.ps1"} {
 		if !isFile(Site, name) {
 			t.Errorf("embedded site is missing %s", name)
 		}

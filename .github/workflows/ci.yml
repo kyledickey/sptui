@@ -45,9 +45,18 @@ jobs:
             - run: go vet ./internal/web/... ./cmd/web/...
             - run: go test ./internal/web/... ./cmd/web/...
             - name: JavaScript parses
-              run: for f in internal/web/site/*.js; do node --check "$f"; done
+              run: |
+                  for f in internal/web/site/*.js; do node --check "$f"; done
+                  # The page's scripts share one global scope: no name may be declared twice.
+                  cat internal/web/site/*.js >/tmp/all.js && node --check /tmp/all.js
             - name: shellcheck install.sh
               run: shellcheck internal/web/site/install.sh
+            - name: install.ps1 parses
+              shell: pwsh
+              run: |
+                  $errors = $null
+                  [System.Management.Automation.Language.Parser]::ParseFile("$PWD/internal/web/site/install.ps1", [ref]$null, [ref]$errors) | Out-Null
+                  if ($errors) { $errors | ForEach-Object { Write-Error $_.ToString() }; exit 1 }
             - name: Serve and fetch every page
               run: |
                   go build -o /tmp/web ./cmd/web
@@ -61,14 +70,16 @@ jobs:
                   }
                   check / 200 "Spotify in your terminal"
                   check /install.sh 200 "#!/usr/bin/env bash"
+                  check /install.ps1 200 "irm https://sptui.sh/install.ps1"
                   check /style.css 200 ".install"
                   check /intros.json 200 "vinyl"
                   check /screens/home.json 200 "{"
                   check /nope 404 "</html>"
                   cmp /tmp/body internal/web/site/404.html
                   curl -fsI http://127.0.0.1:8080/install.sh | grep -i '^content-type: text/plain'
+                  curl -fsI http://127.0.0.1:8080/install.ps1 | grep -i '^content-type: text/plain'
 
     build:
         uses: ./.github/workflows/build.yml
         with:
-            targets: '["linux_amd64", "linux_arm64"]'
+            targets: '["linux_amd64", "linux_arm64", "windows_amd64"]'

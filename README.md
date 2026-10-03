@@ -20,6 +20,15 @@ into `~/.local/bin`, for macOS or Linux (x86-64 or ARM). The audio codecs are
 built in, so there's nothing else to install; on Linux it also installs ALSA's
 library if it's missing.
 
+On Windows, in PowerShell:
+
+```powershell
+irm https://sptui.sh/install.ps1 | iex
+```
+
+That puts `sptui.exe` in `%LOCALAPPDATA%\Programs\sptui` and adds it to your
+PATH. It's an x86-64 build, which Windows 11 on ARM runs too.
+
 ### Updating
 
 sptui checks for a new release once a day. When there is one, a note at the
@@ -39,8 +48,12 @@ sptui decodes audio with a few C libraries, so it needs cgo and:
 | Arch / CachyOS  | `sudo pacman -S libogg libvorbis flac mpg123 alsa-lib`                               |
 | Debian / Ubuntu | `sudo apt install libogg-dev libvorbis-dev libflac-dev libmpg123-dev libasound2-dev` |
 | macOS           | `brew install libogg libvorbis flac mpg123`                                          |
+| Windows (MSYS2) | `pacman -S mingw-w64-ucrt-x86_64-{go,gcc,pkgconf,libogg,libvorbis,flac,mpg123}`      |
 
 _these are the only OSes I've tested on, others probably work_
+
+On Windows, run it in MSYS2's UCRT64 shell, and run the `sptui.exe` you build
+from there too, since it uses MSYS2's copies of the codecs.
 
 Then:
 

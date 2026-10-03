@@ -1,5 +1,6 @@
 # Pushing a tag like v1.2.0 builds sptui for every platform and uploads the
-# archives to its GitHub release, which install.sh downloads from.
+# archives to its GitHub release, which install.sh and install.ps1 download
+# from.
 name: release
 
 on:
@@ -25,7 +26,7 @@ jobs:
           merge-multiple: true
       - name: Checksums
         working-directory: dist
-        run: sha256sum sptui_*.tar.gz | tee checksums.txt
+        run: sha256sum sptui_*.tar.gz sptui_*.zip | tee checksums.txt
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}

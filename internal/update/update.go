@@ -4,6 +4,7 @@ package update
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bufio"
 	"bytes"
 	"cmp"
@@ -140,9 +141,30 @@ func (u *Updater) fetchLatest(ctx context.Context) (string, error) {
 	return tag, nil
 }
 
-// ArchiveName is the release file for this machine.
+// ArchiveName is the release file for this machine: a zip on Windows, a
+// tarball everywhere else.
 func ArchiveName() string {
-	return fmt.Sprintf("sptui_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH)
+	ext := ".tar.gz"
+	if runtime.GOOS == "windows" {
+		ext = ".zip"
+	}
+	return fmt.Sprintf("sptui_%s_%s%s", runtime.GOOS, runtime.GOARCH, ext)
+}
+
+// binName is the binary's name in a release archive.
+func binName() string {
+	if runtime.GOOS == "windows" {
+		return "sptui.exe"
+	}
+	return "sptui"
+}
+
+// Cleanup removes the binary an update on Windows moved aside, once nothing
+// is running it any more. Elsewhere there's nothing to clean up.
+func Cleanup(exe string) {
+	if runtime.GOOS == "windows" {
+		_ = os.Remove(exe + ".old")
+	}
 }
 
 // ErrNotWritable means the binary is somewhere the user can't write to,
@@ -158,7 +180,8 @@ func (u *Updater) Install(ctx context.Context, tag string) error {
 	}
 	dir := filepath.Dir(u.Exe)
 	// Fail before downloading anything if the binary can't be replaced.
-	tmp, err := os.CreateTemp(dir, ".sptui-update-*")
+	// Windows only runs files named .exe.
+	tmp, err := os.CreateTemp(dir, ".sptui-update-*"+filepath.Ext(binName()))
 	if err != nil {
 		if errors.Is(err, fs.ErrPermission) {
 			return fmt.Errorf("can't write to %s: %w", dir, ErrNotWritable)
@@ -185,7 +208,7 @@ func (u *Updater) Install(ctx context.Context, tag string) error {
 	if got := sha256.Sum256(archive); hex.EncodeToString(got[:]) != want {
 		return fmt.Errorf("%s doesn't match its checksum; not installing it", name)
 	}
-	bin, err := unpack(archive)
+	bin, err := unpack(name, archive)
 	if err != nil {
 		return fmt.Errorf("unpack %s: %w", name, err)
 	}
@@ -210,12 +233,31 @@ func (u *Updater) Install(ctx context.Context, tag string) error {
 	if got := strings.TrimSpace(string(out)); got != "sptui "+tag {
 		return fmt.Errorf("the new sptui says it's %q, not %s", got, tag)
 	}
-	// Rename rather than overwrite: the running binary keeps its file, and
-	// macOS doesn't mistake the new one for a tampered copy of the old.
-	if err := os.Rename(tmp.Name(), u.Exe); err != nil {
+	if err := replace(tmp.Name(), u.Exe, runtime.GOOS == "windows"); err != nil {
 		return err
 	}
 	u.Log.Info("installed update", "version", tag)
+	return nil
+}
+
+// replace puts the new binary in place of exe. It renames rather than
+// overwrites: the running binary keeps its file, and macOS doesn't mistake
+// the new one for a tampered copy of the old. Windows won't replace a
+// running binary at all, but will move it aside, so there the old one goes
+// to exe.old first (moveAside), for Cleanup to remove next time.
+func replace(bin, exe string, moveAside bool) error {
+	if !moveAside {
+		return os.Rename(bin, exe)
+	}
+	old := exe + ".old"
+	_ = os.Remove(old) // left by an update before, if nothing runs it
+	if err := os.Rename(exe, old); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if err := os.Rename(bin, exe); err != nil {
+		_ = os.Rename(old, exe)
+		return err
+	}
 	return nil
 }
 
@@ -257,8 +299,11 @@ func checksum(sums []byte, file string) (string, bool) {
 	return "", false
 }
 
-// unpack returns the sptui binary from a release archive.
-func unpack(archive []byte) ([]byte, error) {
+// unpack returns the sptui binary from release archive name.
+func unpack(name string, archive []byte) ([]byte, error) {
+	if strings.HasSuffix(name, ".zip") {
+		return unzip(archive)
+	}
 	gz, err := gzip.NewReader(bytes.NewReader(archive))
 	if err != nil {
 		return nil, err
@@ -276,6 +321,26 @@ func unpack(archive []byte) ([]byte, error) {
 			return io.ReadAll(io.LimitReader(tr, maxArchive))
 		}
 	}
+}
+
+// unzip returns sptui.exe from a Windows release archive.
+func unzip(archive []byte) ([]byte, error) {
+	zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range zr.File {
+		if !f.FileInfo().Mode().IsRegular() || path.Base(f.Name) != "sptui.exe" {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, err
+		}
+		defer rc.Close()
+		return io.ReadAll(io.LimitReader(rc, maxArchive))
+	}
+	return nil, errors.New("no sptui.exe in it")
 }
 
 // IsRelease reports whether v is a release version like v1.2.3 (or

@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
 # Builds a release archive of sptui for this machine, as
-# dist/sptui_<os>_<arch>.tar.gz. install.sh downloads these.
+# dist/sptui_<os>_<arch>.tar.gz, or .zip on Windows. install.sh and
+# install.ps1 download these.
 #
 #   .github/scripts/build.sh [version]
 #
 # The audio codecs (ogg, vorbis, flac, mpg123) are linked in statically, so
 # the binary needs nothing but the system's libasound on Linux, and nothing
-# at all on macOS. On Linux, build it on an old distro (Debian stable) so it
-# runs against any glibc since.
+# at all on macOS or Windows. On Linux, build it on an old distro (Debian
+# stable) so it runs against any glibc since.
 #
 # Needs Go, a C compiler, pkg-config and the codecs' static libraries: from
 # Homebrew on macOS; on Linux, libogg-dev libvorbis-dev libflac-dev
 # libasound2-dev, plus make and bzip2 to build mpg123 (Debian ships no static
-# libmpg123).
+# libmpg123); on Windows, MSYS2's UCRT64 gcc, pkgconf, libogg, libvorbis,
+# flac and mpg123, plus zip, run from its bash.
 set -euo pipefail
 
 VERSION=${1:-dev}
@@ -46,35 +48,62 @@ for pair in ogg:ogg vorbis:vorbis vorbisenc:vorbisenc flac:FLAC libmpg123:mpg123
 		echo "no static library for $pc: $lib" >&2
 		exit 1
 	}
-	ln -s "$lib" "$work/static/"
+	cp "$lib" "$work/static/"
 done
 
 # With --static, pkg-config also lists what each codec itself links against.
 real_pkg_config=$(command -v pkg-config)
-printf '#!/bin/sh\nexec %q --static "$@"\n' "$real_pkg_config" >"$work/pkg-config"
-chmod +x "$work/pkg-config"
+ldflags="-s -w -X main.version=$VERSION"
+bin=sptui
+if [[ $os == windows ]]; then
+	# Go runs PKG_CONFIG itself, and Windows can't run a shell script, so
+	# the wrapper is a batch file, and paths are Windows paths.
+	printf '@"%s" --static %%*\r\n' "$(cygpath -w "$real_pkg_config")" >"$work/pkg-config.cmd"
+	pkg_config=$(cygpath -w "$work/pkg-config.cmd")
+	static=$(cygpath -m "$work/static")
+	out=$(cygpath -m "$work/out")
+	# FLAC's headers expect its DLL unless told otherwise. -static also
+	# links in MinGW's own runtime, leaving only Windows' DLLs.
+	export CGO_CFLAGS="${CGO_CFLAGS:--O2 -g} -DFLAC__NO_DLL"
+	ldflags+=" -linkmode=external -extldflags=-static"
+	bin=sptui.exe
+else
+	printf '#!/bin/sh\nexec %q --static "$@"\n' "$real_pkg_config" >"$work/pkg-config"
+	chmod +x "$work/pkg-config"
+	pkg_config=$work/pkg-config
+	static=$work/static
+	out=$work/out
+fi
 
 mkdir "$work/out"
 (
 	cd "$root"
-	CGO_ENABLED=1 PKG_CONFIG="$work/pkg-config" CGO_LDFLAGS="-L$work/static" \
-		go build -trimpath -buildvcs=false -ldflags "-s -w -X main.version=$VERSION" \
-		-o "$work/out/sptui" ./cmd/sptui
+	CGO_ENABLED=1 PKG_CONFIG="$pkg_config" CGO_LDFLAGS="-L$static" \
+		go build -trimpath -buildvcs=false -ldflags "$ldflags" \
+		-o "$out/$bin" ./cmd/sptui
 )
 
-# Make sure none of the codecs were linked dynamically after all.
-if [[ $os == linux ]]; then
-	deps=$(ldd "$work/out/sptui")
-else
-	deps=$(otool -L "$work/out/sptui")
-fi
+# Make sure none of the codecs (or on Windows, MinGW's runtime) were linked
+# dynamically after all.
+case $os in
+linux) deps=$(ldd "$work/out/$bin") ;;
+darwin) deps=$(otool -L "$work/out/$bin") ;;
+windows) deps=$(objdump -p "$work/out/$bin" | grep 'DLL Name') ;;
+esac
 echo "$deps"
-if grep -Ei 'ogg|vorbis|flac|mpg123' <<<"$deps"; then
-	echo "codecs are linked dynamically" >&2
+if grep -Ei 'ogg|vorbis|flac|mpg123|winpthread|libgcc|libstdc' <<<"$deps"; then
+	echo "linked dynamically against a library that won't be there" >&2
 	exit 1
 fi
-"$work/out/sptui" -version
+"$work/out/$bin" -version
 
 mkdir -p "$root/dist"
-tar -czf "$root/dist/sptui_${os}_${arch}.tar.gz" -C "$work/out" sptui
-echo "built dist/sptui_${os}_${arch}.tar.gz"
+if [[ $os == windows ]]; then
+	archive=sptui_${os}_${arch}.zip
+	rm -f "$root/dist/$archive"
+	(cd "$work/out" && zip -q "$root/dist/$archive" "$bin")
+else
+	archive=sptui_${os}_${arch}.tar.gz
+	tar -czf "$root/dist/$archive" -C "$work/out" "$bin"
+fi
+echo "built dist/$archive"

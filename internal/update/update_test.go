@@ -2,6 +2,7 @@ package update
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -202,6 +203,52 @@ func TestInstallNotWritable(t *testing.T) {
 	t.Cleanup(func() { os.Chmod(dir, 0o755) })
 	if err := u.Install(context.Background(), "v0.2.0"); !errors.Is(err, ErrNotWritable) {
 		t.Fatalf("err = %v, want ErrNotWritable", err)
+	}
+}
+
+func TestUnzip(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, _ := zw.Create("sptui.exe")
+	w.Write([]byte("MZ binary"))
+	zw.Close()
+	got, err := unpack("sptui_windows_amd64.zip", buf.Bytes())
+	if err != nil || string(got) != "MZ binary" {
+		t.Fatalf("unpack = %q, %v", got, err)
+	}
+	if _, err := unpack("sptui_windows_amd64.zip", []byte("not a zip")); err == nil {
+		t.Error("unpacked something that isn't a zip")
+	}
+}
+
+// TestReplaceMovingAside replaces a binary the way it's done on Windows.
+func TestReplaceMovingAside(t *testing.T) {
+	dir := t.TempDir()
+	exe, bin := filepath.Join(dir, "sptui.exe"), filepath.Join(dir, ".sptui-update-1.exe")
+	os.WriteFile(exe, []byte("old"), 0o755)
+	os.WriteFile(exe+".old", []byte("older"), 0o755)
+	os.WriteFile(bin, []byte("new"), 0o755)
+	if err := replace(bin, exe, true); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(exe); string(b) != "new" {
+		t.Errorf("sptui.exe = %q, want new", b)
+	}
+	if b, _ := os.ReadFile(exe + ".old"); string(b) != "old" {
+		t.Errorf("sptui.exe.old = %q, want old", b)
+	}
+	if _, err := os.Stat(bin); err == nil {
+		t.Error("the update is still there")
+	}
+
+	// A first install has nothing to move aside.
+	os.Remove(exe)
+	os.WriteFile(bin, []byte("newer"), 0o755)
+	if err := replace(bin, exe, true); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(exe); string(b) != "newer" {
+		t.Errorf("sptui.exe = %q, want newer", b)
 	}
 }
 

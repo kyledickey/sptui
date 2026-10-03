@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"runtime"
 	"strings"
 	"time"
 
@@ -119,6 +120,9 @@ func (m *Model) handleUpdate(msg tea.Msg) tea.Cmd {
 			m.upd.err = friendly(msg.err)
 			if errors.Is(msg.err, update.ErrNotWritable) {
 				m.upd.err = "no permission; run sudo sptui update"
+				if runtime.GOOS == "windows" {
+					m.upd.err = "no permission; run sptui update as administrator"
+				}
 			}
 			m.setStatus("Couldn't update: "+m.upd.err, true)
 			return nil

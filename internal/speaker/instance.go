@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -60,8 +61,9 @@ func (s *Speaker) serve(ctx context.Context, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	// Only this user's sptuis may drive the speaker.
-	if err := os.Chmod(s.sock, 0o600); err != nil {
+	// Only this user's sptuis may drive the speaker. Windows has no modes
+	// to set; the socket sits in the user's own profile there.
+	if err := os.Chmod(s.sock, 0o600); err != nil && runtime.GOOS != "windows" {
 		_ = l.Close()
 		return err
 	}

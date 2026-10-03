@@ -47,7 +47,7 @@ func Handler(site fs.FS) http.Handler {
 			name += ".html"
 		default:
 			if isFile(site, name) {
-				if path.Ext(name) == ".sh" {
+				if ext := path.Ext(name); ext == ".sh" || ext == ".ps1" {
 					// Readable in a browser, not downloaded.
 					w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 				}
